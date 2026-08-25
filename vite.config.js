@@ -4,5 +4,5 @@ export default defineConfig({
   plugins:[react()],
   server:{host:'0.0.0.0',allowedHosts:true},
   preview:{host:'0.0.0.0',allowedHosts:true},
-  build:{rollupOptions:{input:{main:'index.html',admin:'admin.html',parent:'parent.html'}}}
+  build:{rollupOptions:{input:{main:'index.html',admin:'admin.html',parent:'parent.html',privacy:'privacy.html',terms:'terms.html'}}}
 });
