@@ -1,5 +1,6 @@
-name = "milestone-junior-level-up-academy"
+name = "milestone-website"
 compatibility_date = "2026-08-12"
 
 [assets]
 directory = "./dist/"
+not_found_handling = "single-page-application"
