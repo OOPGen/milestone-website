@@ -1,7 +1,28 @@
 name = "milestone-website"
 compatibility_date = "2026-08-12"
 
+# Worker entry point. Handles /api/* and hands everything else to the static
+# assets. Adding this did not change how the site itself is served.
+main = "worker/index.js"
+
 [assets]
 directory = "./dist/"
+binding = "ASSETS"
 not_found_handling = "single-page-application"
 html_handling = "none"
+
+# /api/* must reach the Worker. Without this, not_found_handling would answer
+# API requests with index.html, because no asset matches those paths.
+# Every other path is still served asset-first, exactly as before.
+run_worker_first = ["/api/*"]
+
+[vars]
+# Non-secret configuration only. Secrets are set with `wrangler secret put`
+# and must never appear in this file — it is committed to the repository.
+#
+# ENQUIRY_TO   — the monitored school inbox that receives enquiries.
+#                NOT YET CONFIRMED by the school; see CONTENT-CHECKLIST.md.
+# ENQUIRY_FROM — the verified sender, e.g. "Milestone Website <website@yourdomain>".
+#                Must be on a domain verified with the email provider.
+ENQUIRY_TO = ""
+ENQUIRY_FROM = ""

@@ -1,0 +1,25 @@
+# Local development secrets for `wrangler dev`.
+#
+# Copy to `.dev.vars` (which is gitignored) and fill in. NEVER commit `.dev.vars`,
+# and never put real production secrets in it — use test values.
+# In production these are set with `wrangler secret put`, not from any file.
+
+# Resend API key. Get one at https://resend.com → API Keys.
+RESEND_API_KEY=re_your_test_key_here
+
+# Where enquiries are delivered. Use your own inbox while testing.
+ENQUIRY_TO=you@example.com
+
+# Verified sender. Must be on a domain verified with Resend.
+# Resend's shared sandbox sender works before your domain is verified:
+ENQUIRY_FROM=Milestone Website <onboarding@resend.dev>
+
+# Cloudflare Turnstile secret. Leave unset to skip verification locally.
+# Cloudflare's always-passes test secret:
+# TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
+
+# --- test-only overrides, do not set in production ---
+# Point the Worker at the local mock provider (tests/mock-email-provider.cjs):
+# RESEND_API_BASE=http://127.0.0.1:4199
+# Raise the submission rate limit so UI tests can run many submissions:
+# RATE_LIMIT_MAX=5000

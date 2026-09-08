@@ -1,4 +1,8 @@
 .env
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.wrangler/
 .env.*
 !.env.example
 node_modules/
@@ -6,3 +10,4 @@ node_modules/
 *.log
 supabase/.temp/
 dist/
+_mock-mail.json

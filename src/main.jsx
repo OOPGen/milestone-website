@@ -2,6 +2,11 @@ import React, {useEffect, useRef} from 'react';
 import {createRoot} from 'react-dom/client';
 import './react-shell.css';
 import legacyMarkup from './legacyMarkup';
+import {contact} from './siteConfig.js';
+
+// Expose the single source of truth to app.js (a classic script, so it cannot
+// import the module directly). Set before app.js is appended.
+window.SITE = contact;
 
 function App(){
   const shell=useRef(null);
