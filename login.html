@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Sign in | Milestone Junior Level Up Academy</title>
+<meta name="description" content="Secure sign-in for Milestone Junior Level Up Academy staff and parent accounts."/>
+<meta name="robots" content="noindex"/>
+<meta name="theme-color" content="#2a0e52"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="login.css"/>
+</head>
+<body>
+<div class="login-page">
+
+  <section class="brand-panel" aria-hidden="false">
+    <div class="brand-media">
+      <img
+        src="campus-hero-1200.webp"
+        srcset="campus-hero-800.webp 800w, campus-hero-1200.webp 1200w, campus-hero-1800.webp 1800w"
+        sizes="(max-width: 960px) 100vw, 45vw"
+        alt=""
+        loading="eager"
+        fetchpriority="high"
+      />
+      <div class="brand-gradient"></div>
+      <div class="brand-orb brand-orb-cyan"></div>
+      <div class="brand-orb brand-orb-gold"></div>
+    </div>
+
+    <div class="brand-content">
+      <div class="brand-top">
+        <div class="brand-logo-chip">
+          <img src="school-logo.webp" alt="Milestone Junior Level Up Academy"/>
+        </div>
+      </div>
+
+      <div class="brand-middle">
+        <h1 class="brand-headline">Empowering Every Learner&rsquo;s Next Chapter.</h1>
+        <p class="brand-sub">A secure, single sign-in for staff and parents to manage admissions, updates and everyday school life at Milestone.</p>
+      </div>
+
+      <div class="brand-bottom">
+        <span class="brand-tagline-chip">Learn. Grow. Achieve.</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="form-panel">
+    <div class="form-panel-inner">
+
+      <header class="form-header">
+        <h2 class="form-title">Welcome back.</h2>
+        <p class="form-subtitle">Sign in to your Milestone account</p>
+      </header>
+
+      <div class="role-tabs" role="tablist" aria-label="Account type">
+        <button type="button" class="role-tab active" role="tab" aria-selected="true" data-role="staff" id="roleTabStaff">Staff</button>
+        <button type="button" class="role-tab" role="tab" aria-selected="false" data-role="parent" id="roleTabParent">Parent</button>
+        <span class="role-tab-thumb" aria-hidden="true"></span>
+      </div>
+
+      <form id="loginForm" novalidate>
+
+        <div class="field" id="emailField">
+          <label for="email">Email address</label>
+          <div class="input-shell">
+            <span class="input-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m4 7 8 6 8-6"/></svg>
+            </span>
+            <input type="email" id="email" name="email" placeholder="you@example.com" autocomplete="email" required/>
+          </div>
+          <p class="field-error" id="emailFieldError">Enter a valid email address.</p>
+        </div>
+
+        <div class="field" id="passwordField">
+          <label for="password">Password</label>
+          <div class="input-shell">
+            <span class="input-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V7.8a4 4 0 0 1 8 0v2.7"/></svg>
+            </span>
+            <input type="password" id="password" name="password" placeholder="Enter your password" autocomplete="current-password" required/>
+            <button type="button" class="password-toggle" id="togglePassword" aria-label="Show password">
+              <svg class="icon-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg class="icon-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 5.7A10.6 10.6 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a15.6 15.6 0 0 1-3.4 4.2M6.4 6.4C4 8 2.5 12 2.5 12a15.7 15.7 0 0 0 4.9 5.6A10.4 10.4 0 0 0 12 18.5c1 0 2-.1 2.9-.4"/><path d="M9.5 10a3 3 0 0 0 4.2 4.2"/></svg>
+            </button>
+          </div>
+          <p class="field-error" id="passwordFieldError">Enter your password.</p>
+        </div>
+
+        <div class="form-row">
+          <label class="remember">
+            <input type="checkbox" id="remember"/>
+            <span class="remember-box" aria-hidden="true"></span>
+            <span>Remember me</span>
+          </label>
+          <a class="forgot-link" href="mailto:milestonejnrlevelupacademy@gmail.com?subject=Password%20reset%20request">Forgot password?</a>
+        </div>
+
+        <p class="form-error" id="formError" role="alert" hidden></p>
+
+        <button type="submit" class="submit-btn" id="submitBtn">
+          <span class="submit-label">Sign In</span>
+          <svg class="submit-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
+          <span class="submit-spinner" aria-hidden="true"></span>
+        </button>
+
+      </form>
+
+      <p class="form-footnote">
+        <a href="index.html">&larr; Back to the Milestone website</a>
+      </p>
+
+    </div>
+  </section>
+
+</div>
+<script src="login.js" defer></script>
+</body>
+</html>
