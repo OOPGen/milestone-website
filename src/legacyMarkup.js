@@ -23,7 +23,7 @@ export default `
 </nav>
 <div class="nav-actions">
 <button class="theme-btn" aria-label="Toggle dark mode">☾</button>
-<button class="signin-link" onclick="window.location.href='login.html'">Sign in</button>
+<button class="signin-link" aria-haspopup="dialog" onclick="openParentPortalModal(event)">Parent Portal — Coming Soon</button>
 <a class="btn btn-sm" href="#admissions">Apply Now</a>
 </div>
 <button class="menu-btn" aria-label="Open menu" aria-expanded="false" aria-controls="mobileMenu">☰</button>
@@ -41,7 +41,7 @@ export default `
 <a href="#news-events">News &amp; Events</a>
 <a href="#contact">Contact</a>
 </nav>
-<button class="mobile-signin" onclick="closeMenu();window.location.href='login.html'">Sign in</button>
+<button class="mobile-signin" aria-haspopup="dialog" onclick="closeMenu();openParentPortalModal(event)">Parent Portal — Coming Soon</button>
 <button class="mobile-theme" onclick="document.querySelector('.theme-btn').click();closeMenu()">☾ Day / night mode</button>
 <a class="btn" href="#admissions">Apply Now</a>
 </div>
@@ -207,7 +207,7 @@ export default `
 <p>Your parent space keeps the essentials in one place, from notices and term dates to documents and application updates.</p>
 </div>
 <div class="parent-grid">
-<a class="parent-card featured" href="parent.html"><span class="parent-card-icon">◌</span><b>Parent portal</b><small>Notices, application status and your school calendar.</small><strong>Enter portal →</strong></a>
+<button type="button" class="parent-card featured" aria-haspopup="dialog" onclick="openParentPortalModal(event)"><span class="parent-card-icon">◌</span><b>Parent Portal — Coming Soon</b><small>Notices, term dates and your school calendar — on the way.</small><strong>Learn more →</strong></button>
 <div class="parent-card"><span class="parent-card-icon">◷</span><b>Term &amp; events</b><small>Never miss a term date, meeting or celebration.</small><a href="#news-events"><strong>View calendar →</strong></a></div>
 <div class="parent-card"><span class="parent-card-icon">▤</span><b>Uniform &amp; downloads</b><small>Prospectus, fees, uniform guide and handbook.</small><a href="#downloads"><strong>View documents →</strong></a></div>
 <div class="parent-card"><span class="parent-card-icon">✉</span><b>Contact the school</b><small>Questions, visits or admissions support.</small><a href="#contact"><strong>Get in touch →</strong></a></div>
@@ -334,7 +334,7 @@ export default `
 <div class="footer-brand"><span class="logo-wrap footer-logo"><img class="school-logo" src="school-logo.webp" alt="Milestone Junior Level Up Academy logo" width="1080" height="959" decoding="async"/></span><p>Beginning of a new chapter to excellence — dedicated to nurturing excellence and providing a total quality education in Gweru.</p></div>
 <div class="footer-links">
 <div><b>Explore</b><a href="#about">About us</a><a href="#programs">Learning</a><a href="#gallery">School life</a><a href="#news-events">News &amp; events</a></div>
-<div><b>Parents</b><a href="parent.html">Parent portal</a><a href="#parent-tools">Term dates</a><a href="#downloads">Downloads</a><a href="#contact">Contact the school</a></div>
+<div><b>Parents</b><button type="button" class="footer-link-btn" aria-haspopup="dialog" onclick="openParentPortalModal(event)">Parent Portal — Coming Soon</button><a href="#parent-tools">Term dates</a><a href="#downloads">Downloads</a><a href="#contact">Contact the school</a></div>
 <div><b>Admissions</b><a href="#admissions">Start an enquiry</a><a href="${contact.phonePrimaryHref}">Call admissions</a><a href="https://wa.me/${contact.whatsappDigits}" target="_blank" rel="noopener">WhatsApp us</a></div>
 </div>
 </div>
@@ -358,6 +358,25 @@ export default `
 <a class="btn btn-gold" id="docWhatsApp" target="_blank" rel="noopener" onclick="track('whatsapp_clicked')">WhatsApp the office ↗</a>
 <a class="btn btn-outline" id="docPhone" href="${contact.phonePrimaryHref}">Call the office</a>
 <a class="btn btn-outline" id="docEmail">Email the office</a>
+</div>
+</div>
+</div>
+</div>
+<!-- Parent Portal information panel. PHASE 1: the portal is not live — every
+     sign-in/login/portal-login call-to-action on the public site opens this
+     instead of navigating anywhere. No login form, no email/password field,
+     no account-creation option, and no claim that parent accounts are active. -->
+<div class="article-modal" id="parentPortalModal" role="dialog" aria-modal="true" aria-labelledby="parentPortalModalTitle" aria-hidden="true">
+<div class="article-modal-card doc-modal-card">
+<button class="modal-close" onclick="closeParentPortalModal()" aria-label="Close">×</button>
+<div class="article-body">
+<span class="eyebrow">Parent Portal</span>
+<h2 id="parentPortalModalTitle">Parent Portal Coming Soon</h2>
+<p>Our Parent Portal is currently being prepared. It will provide secure access to school notices, term dates, calendars, uniform information, and important documents.</p>
+<p>For assistance today, please contact the school office.</p>
+<div class="doc-actions">
+<a class="btn btn-gold" id="portalWhatsApp" target="_blank" rel="noopener" onclick="track('whatsapp_clicked')">Chat on WhatsApp ↗</a>
+<a class="btn btn-outline" id="portalPhone" href="${contact.phonePrimaryHref}">Call the School</a>
 </div>
 </div>
 </div>

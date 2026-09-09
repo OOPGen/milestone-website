@@ -13,7 +13,8 @@
     "test:api": "node tests/api.test.mjs",
     "test:ui": "node tests/ui.test.mjs",
     "test:accounts": "node tests/account-system.test.mjs",
-    "test:smoke:accounts": "node tests/dashboard-smoke.test.mjs"
+    "test:smoke:accounts": "node tests/dashboard-smoke.test.mjs",
+    "build:phase1": "vite build --config vite.config.phase1.js"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",

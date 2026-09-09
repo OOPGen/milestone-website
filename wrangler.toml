@@ -1,9 +1,22 @@
+# ============================================================================
+# PHASE 1 — PUBLIC PREVIEW ONLY. This config has been TEMPORARILY switched
+# from the full account-system backend to the Phase 1 preview Worker.
+#
+# This is an UNCOMMITTED working-tree change. The committed (Phase 2) config
+# is backed up at wrangler.toml.phase2-backup — restore it with:
+#   cp wrangler.toml.phase2-backup wrangler.toml
+# before committing/deploying Phase 2, or this file will diverge from the
+# already-approved Phase 2 wrangler.toml.
+# ============================================================================
 name = "milestone-website"
 compatibility_date = "2026-08-12"
 
-# Worker entry point. Handles /api/* and hands everything else to the static
-# assets. Adding this did not change how the site itself is served.
-main = "worker/index.js"
+# Phase 1: worker/phase1.js only (enquiry + health + explicit 404s for the
+# account-system entry points). Does NOT import worker/lib/* or
+# worker/routes/* — none of that code is deployed in this build.
+# Phase 2 entry point (worker/index.js, the full account-system backend) is
+# restored by the backup above.
+main = "worker/phase1.js"
 
 [assets]
 directory = "./dist/"
@@ -11,10 +24,22 @@ binding = "ASSETS"
 not_found_handling = "single-page-application"
 html_handling = "none"
 
-# /api/* must reach the Worker. Without this, not_found_handling would answer
-# API requests with index.html, because no asset matches those paths.
-# Every other path is still served asset-first, exactly as before.
-run_worker_first = ["/api/*"]
+# /api/* must reach the Worker, or not_found_handling would answer API
+# requests with index.html. The account-system page paths are ALSO listed
+# here for Phase 1: without this, Cloudflare's asset/redirects layer runs
+# BEFORE the Worker for non-/api/* paths, so /admin would hit the (now
+# removed) _redirects rule / SPA fallback before worker/phase1.js's explicit
+# 404 logic ever ran. Listing them here makes the Worker authoritative for
+# these specific paths, matching Phase 1's requirement that they return a
+# real not-found response.
+run_worker_first = [
+  "/api/*",
+  "/admin", "/admin.html", "/admin.js", "/admin.css",
+  "/parent", "/parent.html", "/parent.js", "/parent.css",
+  "/login", "/login.html", "/login.js",
+  "/accept-invitation", "/accept-invitation.html", "/accept-invitation.js",
+  "/apiClient.js",
+]
 
 [vars]
 # Non-secret configuration only. Secrets are set with `wrangler secret put`

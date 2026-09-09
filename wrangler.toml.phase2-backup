@@ -1,0 +1,50 @@
+name = "milestone-website"
+compatibility_date = "2026-08-12"
+
+# Worker entry point. Handles /api/* and hands everything else to the static
+# assets. Adding this did not change how the site itself is served.
+main = "worker/index.js"
+
+[assets]
+directory = "./dist/"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+html_handling = "none"
+
+# /api/* must reach the Worker. Without this, not_found_handling would answer
+# API requests with index.html, because no asset matches those paths.
+# Every other path is still served asset-first, exactly as before.
+run_worker_first = ["/api/*"]
+
+[vars]
+# Non-secret configuration only. Secrets are set with `wrangler secret put`
+# and must never appear in this file — it is committed to the repository.
+#
+# ENQUIRY_TO   — the monitored school inbox that receives enquiries.
+#                NOT YET CONFIRMED by the school; see CONTENT-CHECKLIST.md.
+# ENQUIRY_FROM — the verified sender, e.g. "Milestone Website <website@yourdomain>".
+#                Must be on a domain verified with the email provider.
+ENQUIRY_TO = ""
+ENQUIRY_FROM = ""
+# SUPER_ADMIN_EMAIL — allow-list for the one-time bootstrap route. See
+#                     ACCOUNT-SYSTEM-PLAN.md section 9. Not itself a secret,
+#                     but the account is only ever created via that flow.
+SUPER_ADMIN_EMAIL = ""
+
+# ---------------------------------------------------------------------------
+# Account system — D1 and R2. UNCOMMENT ONLY after running:
+#   npx wrangler d1 create milestone-db
+#   npx wrangler r2 bucket create milestone-media
+# and pasting the returned database_id below. A placeholder id makes
+# `wrangler deploy` fail, so these stay commented until the resources exist —
+# the site deploys today exactly as it did before this change.
+#
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "milestone-db"
+# database_id = "REPLACE_WITH_REAL_ID"
+#
+# [[r2_buckets]]
+# binding = "MEDIA"
+# bucket_name = "milestone-media"
+# ---------------------------------------------------------------------------
