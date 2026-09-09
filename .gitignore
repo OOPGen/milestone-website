@@ -11,3 +11,6 @@ node_modules/
 supabase/.temp/
 dist/
 _mock-mail.json
+.wrangler-local-test*
+_wtest*.log
+tests/.smoke-screenshots/

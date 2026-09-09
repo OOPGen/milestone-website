@@ -70,6 +70,50 @@ npx wrangler deploy          # ← the step deliberately not yet run
 
 ---
 
+## 1b. ⚠️ PRE-LAUNCH BLOCKER — account system requires a paid Workers plan
+
+**Parent and staff authentication requires Cloudflare Workers Paid or
+another execution environment with sufficient CPU capacity for
+PBKDF2-HMAC-SHA256 at 600,000 iterations. Cloudflare Workers Free has a
+10 ms CPU limit per request and must not be used for the live
+login/invitation/password flow.**
+
+This applies to the site as a whole, not just an `/api/auth/*` route — the
+Free plan's CPU limit is set per Worker. Measured cost: one password hash or
+verify at 600,000 iterations takes ~250–290 ms of real CPU time (~870–1000 ms
+observed wall-clock under `wrangler dev`/workerd, including D1 round trips) —
+roughly 25–29× the Free plan's entire per-request budget. See
+`tests/bench-hash.mjs` and `ACCOUNT-SYSTEM-PLAN.md` section 10 for the full
+benchmark and the reasoning behind the iteration count.
+
+**Recommended configuration**, before enabling accounts:
+
+- Move the site to a paid Cloudflare Workers plan.
+- Set an intentionally conservative per-request CPU cap for password
+  operations — start with `[limits] cpu_ms = 2000` in `wrangler.toml`
+  (measured cost ~250–290 ms; 2000 ms leaves headroom for slower devices,
+  cold starts, and traffic spikes) — and measure real production CPU/error
+  behaviour before ever reducing it.
+- **Never** lower password hashing below PBKDF2-HMAC-SHA256 at 600,000
+  iterations to fit a smaller CPU budget. If that trade-off is ever
+  reconsidered, it must be a deliberate decision by the site owner, not a
+  default reached for under deployment pressure.
+- Confirm login throttling still runs before password verification
+  (`isLockedOut()` before `verifyPassword()` in `worker/routes/auth.js`) —
+  already true and covered by `tests/account-system.test.mjs`; don't reorder
+  it if that route is touched again.
+- After launch, monitor the Worker's CPU time and error-rate graphs in the
+  Cloudflare dashboard. A CPU-limit-exceeded error on `/api/auth/*` is the
+  signal the cap or plan is insufficient.
+
+This is a hosting-plan and configuration requirement, not something a code
+change fixes — it belongs in the pre-launch checklist (section 6) as a
+blocking item, separate from and in addition to the account-specific
+"before real parents or staff can log in" steps in `ACCOUNT-SYSTEM-PLAN.md`
+section 10.
+
+---
+
 ## 2. Environment variables and secrets
 
 **Names only. No value in this repository, this document, or the browser bundle.**
@@ -326,6 +370,7 @@ Notes:
 
 Blocking:
 
+- [ ] **Move to a paid Cloudflare Workers plan before enabling accounts** — see section 1b. The Free plan's 10 ms CPU limit cannot run the 600,000-iteration password hashing the account system requires.
 - [ ] Confirm the official admissions inbox, set `ENQUIRY_TO`, send a real test enquiry (section 4)
 - [ ] Verify a sending domain with Resend and set `ENQUIRY_FROM`
 - [ ] Confirm the final domain, then update all five canonical references (section 3)

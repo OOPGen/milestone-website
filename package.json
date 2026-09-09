@@ -11,7 +11,9 @@
     "deploy": "npm run build && wrangler deploy",
     "test:mock": "node tests/mock-email-provider.cjs",
     "test:api": "node tests/api.test.mjs",
-    "test:ui": "node tests/ui.test.mjs"
+    "test:ui": "node tests/ui.test.mjs",
+    "test:accounts": "node tests/account-system.test.mjs",
+    "test:smoke:accounts": "node tests/dashboard-smoke.test.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",

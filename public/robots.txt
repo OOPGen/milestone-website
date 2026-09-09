@@ -10,6 +10,10 @@ Disallow: /parent.css
 Disallow: /login.html
 Disallow: /login.js
 Disallow: /login.css
+Disallow: /accept-invitation.html
+Disallow: /accept-invitation.js
+Disallow: /apiClient.js
+Disallow: /api/
 
 # UPDATE THIS to the final domain before launch (see DEPLOYMENT.md section 3)
 Sitemap: https://milestonejuniorlevelupacademy.co.zw/sitemap.xml

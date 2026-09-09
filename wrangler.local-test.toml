@@ -1,0 +1,33 @@
+# LOCAL TESTING ONLY. Not committed to the deploy config, not used by
+# `npm run deploy`, and never uploaded anywhere. Lets this session drive the
+# real Worker with real D1/R2 bindings via `wrangler dev`'s local (Miniflare)
+# mode, with no Cloudflare account or authentication involved.
+name = "milestone-website-local-test"
+compatibility_date = "2026-08-12"
+main = "worker/index.js"
+
+[assets]
+directory = "./dist/"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+html_handling = "none"
+
+run_worker_first = ["/api/*"]
+
+[vars]
+ENQUIRY_TO = ""
+ENQUIRY_FROM = ""
+# Placeholder for local testing only. The real production address is set as a
+# Worker var at deploy time (see ACCOUNT-SYSTEM-PLAN.md section 9 and
+# DEPLOYMENT.md) — never hardcode the real Super Admin address here.
+SUPER_ADMIN_EMAIL = "super-admin-test@example.test"
+BOOTSTRAP_TOKEN = "local-test-bootstrap-token"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "milestone-db-local-test"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "milestone-media-local-test"

@@ -270,23 +270,195 @@ async function handleEnquiry(request, env) {
   return json({ ok: true, id: sent.id });
 }
 
+import { readJson } from './lib/http.js';
+import * as auth from './routes/auth.js';
+import * as pub from './routes/publicContent.js';
+import * as parent from './routes/parent.js';
+import * as admin from './routes/admin.js';
+import * as media from './routes/media.js';
+import { streamAsset } from './routes/files.js';
+
+/* authorize()/route handlers return either a Response, or a plain
+   { error: 'unauthorized' | 'forbidden' } object when they used authorize()
+   internally and stopped before doing anything. This turns the latter into a
+   real HTTP response at the edge, once, instead of in every route. */
+function toResponse(result) {
+  if (result instanceof Response) return result;
+  if (result?.error === 'unauthorized')
+    return json({ ok: false, error: 'unauthorized', message: 'Please sign in.' }, 401);
+  if (result?.error === 'forbidden')
+    return json({ ok: false, error: 'forbidden', message: 'You do not have access to that.' }, 403);
+  return json({ ok: false, error: 'not_found' }, 404);
+}
+
+const CONTENT_TYPES = ['notice', 'news', 'event', 'term_date', 'album'];
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    const path = url.pathname;
+    const method = request.method;
+    const seg = path.split('/').filter(Boolean); // ['api','admin','content','notice']
 
-    if (url.pathname === '/api/enquiry') return handleEnquiry(request, env);
+    try {
+      if (path === '/api/enquiry') return handleEnquiry(request, env);
 
-    if (url.pathname === '/api/health') {
-      // Booleans only — never the values themselves.
-      return json({
-        ok: true,
-        emailConfigured: Boolean(env.RESEND_API_KEY && env.ENQUIRY_TO && env.ENQUIRY_FROM),
-        turnstileConfigured: Boolean(env.TURNSTILE_SECRET_KEY),
-      });
+      if (path === '/api/health') {
+        return json({
+          ok: true,
+          emailConfigured: Boolean(env.RESEND_API_KEY && env.ENQUIRY_TO && env.ENQUIRY_FROM),
+          turnstileConfigured: Boolean(env.TURNSTILE_SECRET_KEY),
+          accountsConfigured: Boolean(env.DB),
+          mediaConfigured: Boolean(env.MEDIA),
+        });
+      }
+
+      // ---- auth ----
+      if (path === '/api/auth/login' && method === 'POST') return toResponse(await auth.login(request, env));
+      if (path === '/api/auth/logout' && method === 'POST') return toResponse(await auth.logout(request, env));
+      if (path === '/api/auth/me' && method === 'GET') return toResponse(await auth.me(request, env));
+      if (path === '/api/auth/accept-invitation' && method === 'POST') return toResponse(await auth.acceptInvitation(request, env));
+      if (path === '/api/auth/change-password' && method === 'POST') return toResponse(await auth.changeOwnPassword(request, env));
+      if (path === '/api/auth/profile' && method === 'POST') return toResponse(await auth.updateOwnProfile(request, env));
+      if (path === '/api/auth/bootstrap-super-admin' && method === 'POST') return toResponse(await auth.bootstrapSuperAdmin(request, env));
+
+      // ---- public content (no session) ----
+      if (seg[0] === 'api' && seg[1] === 'public') {
+        if (seg[2] === 'content' && CONTENT_TYPES.includes(seg[3]) && method === 'GET' && !seg[4])
+          return toResponse(await pub.listPublicContent(request, env, seg[3]));
+        if (seg[2] === 'content' && CONTENT_TYPES.includes(seg[3]) && seg[4] && method === 'GET')
+          return toResponse(await pub.getPublicContentItem(request, env, seg[4]));
+        if (seg[2] === 'albums' && seg[3] && seg[4] === 'photos' && method === 'GET')
+          return toResponse(await pub.listPublicAlbumPhotos(request, env, seg[3]));
+        if (seg[2] === 'site-content' && method === 'GET')
+          return toResponse(await pub.getSiteContent(request, env));
+      }
+
+      // ---- parent portal (read-only) ----
+      if (seg[0] === 'api' && seg[1] === 'parent') {
+        if (seg[2] === 'content' && CONTENT_TYPES.includes(seg[3]) && method === 'GET' && !seg[4])
+          return toResponse(await parent.listParentContent(request, env, seg[3]));
+        if (seg[2] === 'content' && CONTENT_TYPES.includes(seg[3]) && seg[4] && method === 'GET')
+          return toResponse(await parent.getParentContentItem(request, env, seg[4]));
+        if (seg[2] === 'albums' && seg[3] && seg[4] === 'photos' && method === 'GET')
+          return toResponse(await parent.listParentAlbumPhotos(request, env, seg[3]));
+        if (seg[2] === 'documents' && method === 'GET')
+          return toResponse(await parent.listParentDocuments(request, env));
+      }
+
+      // ---- files (public + parent, auth-checked inside) ----
+      if (seg[0] === 'api' && seg[1] === 'files' && seg[2] && method === 'GET')
+        return toResponse(await streamAsset(request, env, seg[2]));
+
+      // ---- media upload (staff) ----
+      if (path === '/api/admin/media' && method === 'POST')
+        return toResponse(await media.uploadMedia(request, env));
+
+      // ---- admin: content ----
+      // Two shapes, deliberately distinct so a content id can never be mistaken
+      // for a type: /api/admin/content/:type (list/create) and
+      // /api/admin/content/item/:id[/action] (everything id-based).
+      if (seg[0] === 'api' && seg[1] === 'admin' && seg[2] === 'content' && seg[3] === 'item') {
+        const id = seg[4];
+        if (id && !seg[5] && method === 'PATCH') {
+          const body = await readJson(request);
+          if (!body) return json({ ok: false, error: 'validation' }, 400);
+          return toResponse(await admin.updateContent(request, env, id, body));
+        }
+        if (id && seg[5] === 'publish' && method === 'POST')
+          return toResponse(await admin.publishContent(request, env, id));
+        if (id && seg[5] === 'unpublish' && method === 'POST')
+          return toResponse(await admin.unpublishContent(request, env, id));
+        if (id && seg[5] === 'archive' && method === 'POST')
+          return toResponse(await admin.archiveContent(request, env, id));
+        if (id && seg[5] === 'soft-delete' && method === 'POST')
+          return toResponse(await admin.softDeleteContent(request, env, id));
+        if (id && !seg[5] && method === 'DELETE')
+          return toResponse(await admin.hardDeleteContent(request, env, id));
+      } else if (seg[0] === 'api' && seg[1] === 'admin' && seg[2] === 'content') {
+        if (CONTENT_TYPES.includes(seg[3]) && method === 'GET' && !seg[4])
+          return toResponse(await admin.listAdminContent(request, env, seg[3]));
+        if (CONTENT_TYPES.includes(seg[3]) && method === 'POST' && !seg[4]) {
+          const body = await readJson(request);
+          if (!body) return json({ ok: false, error: 'validation' }, 400);
+          return toResponse(await admin.createContent(request, env, seg[3], body));
+        }
+      }
+
+      // ---- admin: gallery photos within an album ----
+      if (seg[0] === 'api' && seg[1] === 'admin' && seg[2] === 'albums' && seg[3] && seg[4] === 'photos') {
+        if (method === 'GET' && !seg[5])
+          return toResponse(await admin.listAdminAlbumPhotos(request, env, seg[3]));
+        if (method === 'POST' && !seg[5]) {
+          const body = await readJson(request);
+          if (!body) return json({ ok: false, error: 'validation' }, 400);
+          return toResponse(await admin.addAlbumPhoto(request, env, seg[3], body));
+        }
+        if (seg[5] && seg[6] === 'status' && method === 'POST') {
+          const body = await readJson(request);
+          return toResponse(await admin.setAlbumPhotoStatus(request, env, seg[5], body?.status));
+        }
+        if (seg[5] && seg[6] === 'soft-delete' && method === 'POST')
+          return toResponse(await admin.softDeleteAlbumPhoto(request, env, seg[5]));
+      }
+
+      // ---- admin: documents ----
+      if (path === '/api/admin/documents' && method === 'GET')
+        return toResponse(await admin.listAdminDocuments(request, env));
+      if (path === '/api/admin/documents/versions' && method === 'POST') {
+        const body = await readJson(request);
+        if (!body) return json({ ok: false, error: 'validation' }, 400);
+        return toResponse(await admin.createDocumentVersion(request, env, body));
+      }
+      if (seg[0] === 'api' && seg[1] === 'admin' && seg[2] === 'documents' && seg[3] && seg[4] === 'status' && method === 'POST') {
+        const body = await readJson(request);
+        return toResponse(await admin.setDocumentStatus(request, env, seg[3], body?.status));
+      }
+
+      // ---- admin: site content ----
+      if (path === '/api/admin/site-content' && method === 'GET')
+        return toResponse(await admin.listAdminSiteContent(request, env));
+      if (seg[0] === 'api' && seg[1] === 'admin' && seg[2] === 'site-content' && seg[3] && method === 'POST') {
+        const body = await readJson(request);
+        if (!body) return json({ ok: false, error: 'validation' }, 400);
+        return toResponse(await admin.updateSiteContent(request, env, seg[3], body));
+      }
+
+      // ---- admin: accounts ----
+      if (path === '/api/admin/parents' && method === 'GET')
+        return toResponse(await admin.listParentAccounts(request, env));
+      if (path === '/api/admin/parents/invite' && method === 'POST') {
+        const body = await readJson(request);
+        if (!body) return json({ ok: false, error: 'validation' }, 400);
+        return toResponse(await admin.inviteParent(request, env, body));
+      }
+      if (path === '/api/admin/staff' && method === 'GET')
+        return toResponse(await admin.listStaffAccounts(request, env));
+      if (path === '/api/admin/staff/invite' && method === 'POST') {
+        const body = await readJson(request);
+        if (!body) return json({ ok: false, error: 'validation' }, 400);
+        return toResponse(await admin.inviteStaff(request, env, body));
+      }
+      if (seg[0] === 'api' && seg[1] === 'admin' && seg[2] === 'accounts' && seg[3] && seg[4] === 'status' && method === 'POST') {
+        const body = await readJson(request);
+        return toResponse(await admin.setAccountStatus(request, env, seg[3], body?.status));
+      }
+      if (seg[0] === 'api' && seg[1] === 'admin' && seg[2] === 'accounts' && seg[3] === 'permission' && seg[4] && method === 'POST') {
+        const body = await readJson(request);
+        return toResponse(await admin.setExtraPermission(request, env, seg[4], body?.capability, Boolean(body?.grant)));
+      }
+
+      // ---- admin: audit log ----
+      if (path === '/api/admin/audit' && method === 'GET')
+        return toResponse(await admin.listAuditLog(request, env, url.searchParams.get('cursor')));
+
+      if (path.startsWith('/api/')) return json({ ok: false, error: 'not_found' }, 404);
+
+      return env.ASSETS.fetch(request);
+    } catch (err) {
+      console.error('unhandled worker error:', err instanceof Error ? err.message : String(err));
+      if (path.startsWith('/api/')) return json({ ok: false, error: 'internal' }, 500);
+      return env.ASSETS.fetch(request);
     }
-
-    if (url.pathname.startsWith('/api/')) return json({ ok: false, error: 'not_found' }, 404);
-
-    return env.ASSETS.fetch(request);
   },
 };

@@ -8,37 +8,35 @@
   var toggleBtn = document.getElementById('togglePassword');
   var submitBtn = document.getElementById('submitBtn');
   var errorBox = document.getElementById('formError');
-  var tabs = document.querySelectorAll('.role-tab');
   var emailField = document.getElementById('emailField');
   var passwordField = document.getElementById('passwordField');
   var loginPage = document.querySelector('.login-page');
+  var tabs = document.querySelectorAll('.role-tab');
+  var api = window.MJLA_API.api;
+  var apiErrorMessage = window.MJLA_API.apiErrorMessage;
 
-  var selectedRole = 'staff';
-
-  function setRole(role){
-    selectedRole = role;
-    tabs.forEach(function(tab){
-      var active = tab.dataset.role === role;
-      tab.setAttribute('aria-selected', String(active));
-      tab.classList.toggle('active', active);
-    });
-  }
-
-  tabs.forEach(function(tab){
-    tab.addEventListener('click', function(){ setRole(tab.dataset.role); });
-  });
-
-  // Restore a remembered email/role for convenience. This is a
-  // client-side nicety only — it does not create or extend any
-  // session, since there is no real backend yet.
+  /* Remember-me stores only the typed EMAIL, as a convenience for the next
+     visit — never a password, token, or session value, and it never grants
+     access on its own. The real session lives only in the HttpOnly cookie
+     the server sets on a successful login. */
   try{
-    var saved = JSON.parse(localStorage.getItem('milestoneRememberedLogin') || 'null');
-    if(saved){
-      if(saved.email) emailInput.value = saved.email;
-      if(saved.role === 'parent' || saved.role === 'staff') setRole(saved.role);
-      rememberInput.checked = true;
-    }
+    var savedEmail = localStorage.getItem('milestoneRememberedEmail');
+    if(savedEmail){ emailInput.value = savedEmail; rememberInput.checked = true; }
   }catch(_){}
+
+  // Cosmetic only: the account's real role (returned by the server) decides
+  // where sign-in lands, not whichever tab was showing when the form was
+  // submitted, so a parent who leaves "Staff" selected still reaches the
+  // parent portal correctly.
+  tabs.forEach(function(tab){
+    tab.addEventListener('click', function(){
+      tabs.forEach(function(t){
+        var active = t === tab;
+        t.classList.toggle('active', active);
+        t.setAttribute('aria-selected', String(active));
+      });
+    });
+  });
 
   toggleBtn.addEventListener('click', function(){
     var show = passwordInput.type === 'password';
@@ -88,40 +86,47 @@
       return;
     }
 
-    if(rememberInput.checked){
-      localStorage.setItem('milestoneRememberedLogin', JSON.stringify({ email: email, role: selectedRole }));
-    }else{
-      localStorage.removeItem('milestoneRememberedLogin');
-    }
+    try{
+      if(rememberInput.checked) localStorage.setItem('milestoneRememberedEmail', email);
+      else localStorage.removeItem('milestoneRememberedEmail');
+    }catch(_){}
 
     submitting = true;
     submitBtn.disabled = true;
     submitBtn.classList.add('is-loading');
     submitBtn.setAttribute('aria-busy', 'true');
 
-    // ------------------------------------------------------------------
-    // Placeholder sign-in. This intentionally preserves the existing
-    // fake-authentication behaviour used elsewhere in the project
-    // (any non-empty email/password succeeds) rather than inventing
-    // real auth. Swap the body of this function for a real Supabase
-    // call when that work is approved — everything above and below it
-    // (validation, loading state, remember-me, role routing) stays the same.
-    // ------------------------------------------------------------------
-    fakeAuthenticate(email, password).then(function(){
-      if(selectedRole === 'staff'){
-        localStorage.setItem('milestoneAdminSignedIn', 'true');
+    api.post('/api/auth/login', { email: email, password: password }).then(function(result){
+      submitting = false;
+      submitBtn.disabled = false;
+      submitBtn.classList.remove('is-loading');
+      submitBtn.removeAttribute('aria-busy');
+
+      if(result.status === 429){
+        showError('Too many attempts. Please wait a few minutes and try again.');
+        return;
       }
+      if(!result.ok || !result.data.user){
+        // Same generic wording the server used, whatever the underlying reason.
+        showError(apiErrorMessage(result, 'Email or password is incorrect.'));
+        passwordInput.value = '';
+        passwordInput.focus();
+        return;
+      }
+
+      // The server's role decides the destination — not whatever tab the
+      // visitor happened to have selected before signing in.
+      var role = result.data.user.role;
+      var destination = role === 'PARENT' ? 'parent.html' : 'admin.html';
       if(loginPage) loginPage.classList.add('is-leaving');
-      setTimeout(function(){
-        window.location.href = selectedRole === 'staff' ? 'admin.html' : 'parent.html';
-      }, 320);
+      setTimeout(function(){ window.location.href = destination; }, 280);
+    }).catch(function(){
+      submitting = false;
+      submitBtn.disabled = false;
+      submitBtn.classList.remove('is-loading');
+      submitBtn.removeAttribute('aria-busy');
+      showError('We could not reach the server. Please check your connection and try again.');
     });
   });
-
-  function fakeAuthenticate(){
-    return new Promise(function(resolve){
-      setTimeout(resolve, 850);
-    });
-  }
 
 })();
