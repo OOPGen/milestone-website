@@ -1,235 +1,182 @@
-# Supabase integration — local preparation
+# Supabase backend — setup & current state
 
-**Status: local preparation only. No Supabase project has been created, no
-migration has been applied, no bucket exists, no Edge Function has been
-deployed, and no Supabase Auth user of any kind exists.** Everything in this
-directory is a plan and a set of files, reviewed and approved before any of
-it touches a real Supabase project.
+This file tracks what has actually been applied to the live Supabase project
+and what remains. Update it whenever a remote step is completed.
 
-The existing Cloudflare account-system backend (`worker/`, `migrations/0001_init.sql`,
-`admin.html`/`parent.html`/`login.html`/`accept-invitation.html` and their
-scripts) **stays exactly as it is** — nothing here replaces it yet. Per the
-explicit instruction this work was done under: *"Keep the existing custom
-Cloudflare account-system code unchanged for now. Do not delete it until the
-Supabase replacement is complete, tested, reviewed, and explicitly
-approved."*
+Project reference: **`ypvnvczuxkcbhxcjqghz`** (URL + anon/publishable key live
+only in the gitignored `.env.local`; `.env.example` carries the two names
+with empty values). No service-role key, DB password, PAT, JWT secret, or
+bootstrap token is stored anywhere in this repository.
 
----
-
-## 1. What exists in this directory
-
-```
-supabase/
-  migrations/           8 SQL files — schema only, NOT applied
-  policies/             8 SQL files — RLS policies, staged for review, NOT applied
-  storage/buckets.sql   3 bucket definitions + their policies, NOT applied
-  functions/            5 Edge Function scaffolds — NOT implemented, NOT deployed
-  SUPABASE-SETUP.md     this file
-```
-
-Plus, outside `supabase/`:
-
-- `src/supabase/client.js` — a frontend Supabase client, reachable only by
-  code that explicitly imports it. **Not imported by anything in the
-  currently deployed Phase 1 build** (`src/main.jsx`, `src/legacyMarkup.js`,
-  `app.js`) — confirmed by rebuilding Phase 1 fresh and checking `dist/` for
-  any trace of it (see §6).
-- `.env.local` (gitignored, not part of this or any commit) holds the two
-  public config values this client reads.
-- `tests/supabase-sql.test.mjs`, `tests/supabase-client.test.mjs` — local,
-  static validation. Neither connects to any database, local or remote.
+The existing Cloudflare account-system backend (`worker/`,
+`migrations/0001_init.sql`, `admin.html` / `parent.html` / `login.html` /
+`accept-invitation.html` and their scripts) **stays exactly as it is** —
+nothing here has replaced it. The deployed Phase 1 public site
+(`worker/phase1.js`) does not read any Supabase value; `src/supabase/client.js`
+is imported by nothing in the build.
 
 ---
 
-## 2. Design decisions — why the schema differs from the Cloudflare/D1 version
+## 1. Applied to the live project — DONE
 
-The Cloudflare backend (`migrations/0001_init.sql`) had to build its own
-`users`, `sessions`, `invitations`, and `login_attempts` tables, and its own
-password hashing (`worker/lib/crypto.js`), because Cloudflare D1 is a plain
-SQL database with no built-in auth system. **Supabase already has one** —
-`auth.users`, managed by GoTrue — so this schema does not reinvent it:
+| Item | State |
+|---|---|
+| Schema migrations `20260101000001`–`20260101000008` | **Applied** (tables, enums, the 4 SECURITY DEFINER helper functions, RLS enabled on all 11 tables) |
+| Migration `20260101000009_function_permissions.sql` | **Applied** — least-privilege EXECUTE on the 4 helpers (`REVOKE … FROM public/anon`, `GRANT … TO authenticated`) |
+| Migration `20260101000010_gallery_cover_helper.sql` | **Applied** — `public.gallery_current_cover_path(uuid)` + its grants |
+| RLS policy files in `supabase/policies/` (all 8, 45 policies) | **Applied** via the SQL Editor. An idempotent consolidated re-apply block is kept in the session report / `README` of this work in case a partial state needs reconciling — every policy statement is safe to re-run as `DROP POLICY IF EXISTS … ; CREATE POLICY …` on the empty tables. |
 
-| Cloudflare (D1) | Supabase equivalent | Why |
+All 11 application tables (`profiles`, `settings`, `page_content`, `notices`,
+`calendar_events`, `news_posts`, `galleries`, `gallery_photos`, `documents`,
+`document_versions`, `audit_log`) currently hold **zero rows**. `auth.users`
+holds **zero users**. `storage.buckets` holds **zero buckets**.
+
+### Read-only verification queries
+
+The full set (policy inventory + role targets, no implicit `TO PUBLIC`,
+anon-facing set, function `SECURITY DEFINER` / `search_path` / EXECUTE grants,
+RLS enabled on 11 tables, 0 rows, 0 users, 0 buckets) is in this work's
+session report. They are all `SELECT`-only and can be re-run any time.
+
+---
+
+## 2. NOT applied — remaining remote steps
+
+### 2a. Storage buckets + `storage.objects` read policies — *SQL ready, not run*
+
+`supabase/storage/buckets.sql` creates 3 buckets (`public-media` public,
+`parent-media` / `school-documents` private) and 4 `SELECT` policies on
+`storage.objects`. **There are deliberately no INSERT / UPDATE / DELETE
+policies** — every Storage write goes through the `manage-media` Edge
+Function's service-role client.
+
+Creating the buckets *empty* is reversible (`delete from storage.buckets
+where id in ('public-media','parent-media','school-documents');` while they
+contain no objects). The "irreversible-in-effect" concern only applies once
+public objects are actually served — which cannot happen until the Edge
+Functions are implemented and deployed.
+
+An idempotent consolidated block (`… on conflict (id) do nothing` for the
+buckets, `DROP POLICY IF EXISTS` for the 4 policies) is in the session
+report.
+
+### 2b. Edge Functions — *scaffolds only, NOT implemented, NOT deployed*
+
+`supabase/functions/` holds 6 scaffolds. Every one returns
+`{ ok:false, error:'not_implemented' }` / `501` for its real paths and is
+marked with `TODO`s:
+
+| Function | Purpose | Notable TODO |
 |---|---|---|
-| `users` (with `password_hash`) | `auth.users` (built-in) + `public.profiles` | Supabase Auth owns password hashing, session tokens, and the invite/signup lifecycle. `profiles` holds only the domain fields Cloudflare's `users` table had beyond that — role, status, extra_permissions. |
-| `sessions` | `auth.sessions` (built-in) | Same reasoning. |
-| `invitations` | Supabase Auth's `admin.inviteUserByEmail()` | Issues its own secure, expiring links — a custom token table isn't needed. |
-| `login_attempts` | Supabase Auth's built-in rate limiting | GoTrue already throttles sign-in attempts. |
-| `assets` (mirrors R2, which has no metadata catalogue of its own) | *(none)* — `storage.objects` (built-in) | Supabase Storage already tracks bucket, path, owner and metadata for every object. A parallel `assets` table would just be a second, driftable source of truth. `gallery_photos`/`document_versions` store a `storage_path` and resolve through Storage directly. |
-| One polymorphic `content_items` table (`type` discriminator) | Five separate tables: `notices`, `calendar_events`, `news_posts`, `galleries` (+`gallery_photos`) | RLS policies apply per table in Postgres. Five small, independently-readable policy files are easier to audit than one shared policy with a type filter buried in every clause — and the brief listed these as distinct items, not one grouped one. |
+| `bootstrap-super-admin` | one-time first Super Admin | verify `BOOTSTRAP_TOKEN`, create the auth user + `profiles` row, return the invite link |
+| `invite-staff` | Super Admin invites Staff Admin / Super Admin | `admin.inviteUserByEmail` + `profiles` insert + audit |
+| `invite-parent` | staff invites a parent | same shape as invite-staff |
+| `manage-user-role` | change role / status | **must re-implement the two lock-out rules** (a user can't deactivate themselves; the last active `SUPER_ADMIN` can't be deactivated/demoted) that RLS cannot express — see §4 |
+| `private-file-access` | signed-URL issuance for private objects, *if needed* | evaluate whether Storage's own signed URLs suffice first |
+| `manage-media` | the sole authority for every media/document create / edit / publish / archive / set-cover / replace-photo-bytes / soft-delete / hard-delete | the full operation set is designed in the file's comments; the RPC helpers it calls (`manage_media_*`) are not written yet |
 
-Everything else — status/visibility/soft-delete columns, the document
-version-history model, the audit log's shape and its "never log a secret"
-rule — carries over unchanged, because those design decisions were already
-reasoned through and tested for the Cloudflare version
-(`tests/account-system.test.mjs`) and nothing about moving to Postgres
-changes them.
+Deploying requires implementing the logic, then:
 
-### Known limitation: account-lock-out rules are not fully expressible in RLS
+```
+supabase functions deploy <name>          # per function
+supabase secrets set SUPER_ADMIN_EMAIL=<real address>
+supabase secrets set BOOTSTRAP_TOKEN=<generated one-time value>
+```
 
-The Cloudflare version enforces two rules in code, not just in the database
-(`worker/routes/admin.js` `setAccountStatus()`):
-1. A user cannot deactivate their own account.
-2. The last active `SUPER_ADMIN` cannot be deactivated or demoted.
+`SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` are
+injected by the Supabase Edge runtime automatically — never set them
+manually, never expose the service-role key to the frontend, never log it.
 
-A static RLS policy can express "is the caller an active Super Admin" but
-not "would this specific UPDATE leave zero active Super Admins" without a
-more elaborate constraint. **These two rules must be re-implemented in the
-`manage-user-role` Edge Function** (marked with `TODO` comments in
-`supabase/functions/manage-user-role/index.ts`) before that function is
-trusted with the same guarantee the Cloudflare version already has an
-automated test for (`tests/account-system.test.mjs`, section 6). Do not
-treat the RLS policies on `profiles` as sufficient on their own for this.
+### 2c. Bootstrap the Super Admin — *creates a real account*
+
+One call to `bootstrap-super-admin` once it is implemented + deployed. No
+password is set by this step; the account owner sets their own via the
+invite link it returns. Needs a real Super Admin email address decided
+first.
+
+### 2d. Point the live frontend at Supabase — *separate, later approval*
+
+This is the step that changes what parents and staff experience. It means
+wiring `src/supabase/client.js` into the account-system UI, replacing the
+Cloudflare Worker auth/content routes, and only then retiring the Worker
+account-system code. Not started; out of scope for the backend-hardening
+work.
 
 ---
 
-## 3. Environment variables — names only, this project
+## 3. RLS design summary
 
-| Name | Where | Kind |
-|---|---|---|
-| `VITE_SUPABASE_URL` | `.env.local` (frontend) | Public |
-| `VITE_SUPABASE_ANON_KEY` | `.env.local` (frontend) | Public — publishable by design |
-| `SUPABASE_URL` | Edge Function runtime | Provided automatically by Supabase |
-| `SUPABASE_ANON_KEY` | Edge Function runtime | Provided automatically by Supabase |
-| `SUPABASE_SERVICE_ROLE_KEY` | Edge Function runtime | Provided automatically by Supabase — **never** given to the frontend client, never logged, never returned in a response |
-| `SUPER_ADMIN_EMAIL` | Edge Function secret (`supabase secrets set`) | Not itself a secret value, but only ever set as one |
-| `BOOTSTRAP_TOKEN` | Edge Function secret | One-time shared secret for `bootstrap-super-admin` |
+Three-tier read model on the content tables (`notices`, `calendar_events`,
+`news_posts`, `galleries` + `gallery_photos`, `documents` +
+`document_versions`), plus `page_content`:
 
-No value for any of these appears anywhere in this repository. The two
-`VITE_*` values live only in the gitignored `.env.local`; `.env.example`
-carries the same two names with empty values.
+- **anon + authenticated** — `status='published' AND visibility='public' AND
+  deleted_at IS NULL` (documents/versions additionally require the row be the
+  *current* version).
+- **authenticated / active parent** — adds parents-only published content
+  (current version only for documents).
+- **authenticated / active staff** — everything not soft-deleted, drafts
+  included; staff also see the full document version history.
 
----
+Writes to the media/document tables (`gallery_photos`, `documents`,
+`document_versions`) and to `storage.objects` have **no client policy at
+all** — they are exclusively the `manage-media` service-role path.
+`galleries` keeps a client INSERT (empty album only, `cover_storage_path IS
+NULL`) and UPDATE (title/summary/visibility/status; `cover_storage_path`
+pinned immutable via `gallery_current_cover_path()`). Hard `DELETE` exists
+nowhere as a client policy — it is `manage-media`'s `delete` operation
+(Super-Admin-checked in code) only. `audit_log` is Super-Admin `SELECT`
+only; rows are written only by the service-role path.
 
-## 4. Remote-action plan — for approval, not yet executed
-
-Nothing below has been run. This is the exact plan for what applying this
-preparation would require, laid out so it can be approved (or corrected)
-piece by piece rather than as one irreversible bundle.
-
-### Step 1 — Create the Supabase project *(if not already done)*
-
-**Irreversible in effect:** a new project gets its own URL/keys; nothing
-destructive, but it is a new billable resource.
-
-- Dashboard: [supabase.com/dashboard](https://supabase.com/dashboard) → New Project.
-- CLI equivalent (needs `supabase login` first — not run): none required if
-  using the dashboard for project creation.
-
-### Step 2 — Apply the 8 migrations
-
-**Not easily reversible: creates real tables.** Running this against a
-project with no existing data is safe; running it against a project that
-already has conflicting objects is not — confirm the project is empty first.
-
-```bash
-supabase link --project-ref <project-ref>      # requires supabase login (not run)
-supabase db push                                # applies supabase/migrations/*.sql in order
-```
-
-### Step 3 — Fold the reviewed policies into a migration, then apply
-
-**Not yet done even locally.** The files in `supabase/policies/` are staged
-for review, not yet part of any numbered migration. Once approved, they get
-copied into a new `supabase/migrations/20260101000009_rls_policies.sql` (or
-similar) and applied via the same `supabase db push` as step 2 — this is a
-deliberate extra pause between "policies are written" and "policies are
-live", not an oversight.
-
-### Step 4 — Create the 3 storage buckets and their policies
-
-**Irreversible in effect once files are uploaded:** a bucket set `public`
-can serve objects to anyone with the URL from the moment they're uploaded;
-making it private later does not un-serve what was already cached/indexed.
-
-```bash
-supabase db push     # storage.buckets rows are created via SQL — see supabase/storage/buckets.sql
-```
-
-(Alternative: Dashboard → Storage → New Bucket, matching the same
-name/public/size-limit/MIME-type values as the SQL file — the SQL route is
-preferred so bucket creation is captured in migration history rather than a
-one-off dashboard click no one can review.)
-
-### Step 5 — Implement and deploy the 5 Edge Functions
-
-**Reversible** (a function can be deleted or redeployed), but each becomes a
-live, callable endpoint the moment it's deployed.
-
-```bash
-supabase functions deploy bootstrap-super-admin
-supabase functions deploy invite-staff
-supabase functions deploy invite-parent
-supabase functions deploy manage-user-role
-supabase functions deploy private-file-access   # only if actually needed — see the note in that file
-```
-
-Each requires implementing the `TODO`-marked logic first (they are scaffolds,
-not working code) and setting its secrets:
-
-```bash
-supabase secrets set SUPER_ADMIN_EMAIL=<real address, to be confirmed>
-supabase secrets set BOOTSTRAP_TOKEN=<generated, one-time>
-```
-
-### Step 6 — Bootstrap the Super Admin
-
-**Creates a real account.** Exactly one call, exactly like the Cloudflare
-version's bootstrap (`ACCOUNT-SYSTEM-PLAN.md` section 9) — no password is
-set by this step; the account owner sets their own via the invite link it
-returns.
-
-### Step 7 — Only then: invite staff, then parents; only then: point the
-live frontend at this backend instead of the Cloudflare one.
-
-**This is the step that actually changes what parents and staff experience.**
-Everything above can be built and even applied without affecting the live
-Phase 1 site, because nothing in the deployed Cloudflare Worker
-(`worker/phase1.js`) or the built frontend imports `src/supabase/client.js`.
-This step is its own separate approval, later, after the above is reviewed
-and tested.
-
-### Exact approval request for each step above
-
-Before running **any** step in this section, the request will be: *"Step
-N is ready. It [creates / does not create] live data. It is [reversible /
-not easily reversible] for this reason: __. Exact command: __. Approve?"*
-— one step at a time, not as a batch.
+`profiles`: own-row `SELECT`; staff read parents; Super Admin reads all;
+own-name `UPDATE` with role/status/permissions pinned via
+`current_profile()`; staff set parent status; Super Admin updates any. No
+client INSERT (invite-only) or DELETE (deactivate via `status`).
 
 ---
 
-## 5. What's NOT done — do not assume otherwise
+## 4. Known limitations / unverified
 
-- No Supabase project, account, bucket, or Edge Function exists remotely.
-- No migration has been applied to any database, local or remote — the SQL
-  in `supabase/migrations/` has only been **statically parsed** (see §7),
-  never executed.
-- No Supabase Auth user exists. `bootstrap-super-admin` has not been called.
-- `.env.local`'s values are real (frontend-safe) Supabase project
-  credentials, but nothing in the deployed site reads them yet.
-- The RLS policies in `supabase/policies/` are drafts, not yet folded into
-  a migration or applied.
+- **Account lock-out rules are not in RLS.** "A user cannot deactivate their
+  own account" and "the last active `SUPER_ADMIN` cannot be
+  deactivated/demoted" must be enforced in `manage-user-role`
+  (`tests/account-system.test.mjs` section 6 is the Cloudflare version's
+  coverage of the same rules). Do not treat the `profiles` UPDATE policies
+  as sufficient on their own.
+- **`page_content` per-key permissions.** The Cloudflare design's
+  `contacts.edit` is a per-user delegable grant. The current
+  `page_content_upsert/update_by_staff` policies are a blanket
+  `is_active_staff()`. If per-key enforcement must live in the database (not
+  just app code), those policies need a key-specific `CASE` added before the
+  frontend is pointed at Supabase.
+- **Cross-service atomicity.** Supabase Storage and Postgres share no
+  transaction. `manage-media` handles this with upload-first / compensating
+  delete / `media.orphan_cleanup_failed` audit + a reconciliation sweep, and
+  does not claim full atomicity — see the `FAILURE / CLEANUP MATRIX` in
+  `supabase/functions/manage-media/index.ts`.
+- **`manage_media_*` RPC helpers are not written.** The Edge Function's
+  design references SECURITY DEFINER RPCs for its atomic multi-row writes;
+  those need to be authored (and added as a migration) when the function is
+  implemented.
+- **Verification query results not captured here.** Run the §1 queries and
+  paste the output into this file or the session log to have a durable
+  record.
+
+---
+
+## 5. Local tests (no database touched)
+
+```
+node tests/supabase-sql.test.mjs          # static validation of every .sql file
+node tests/supabase-client.test.mjs       # fail-safe behaviour of src/supabase/client.js
+node tests/manage-media-function.test.mjs  # static validation of the manage-media scaffold
+npm run test:accounts                      # Cloudflare account-system suite (unaffected)
+```
 
 ## 6. Confirming Phase 1 is unaffected
 
-```bash
-node scripts/build-phase1.mjs     # rebuild the Phase 1 artifact fresh
-grep -rl "supabase" dist/          # expect no output at all
-npx wrangler deploy --dry-run      # expect the same bindings as before: ASSETS, ENQUIRY_TO, ENQUIRY_FROM, SUPER_ADMIN_EMAIL — nothing Supabase-related
 ```
-
-## 7. Local tests
-
-```bash
-node tests/supabase-sql.test.mjs      # static validation of every .sql file — no database touched
-node tests/supabase-client.test.mjs   # fail-safe behaviour of src/supabase/client.js — no .env file touched
+node scripts/build-phase1.mjs        # rebuild the Phase 1 artifact fresh
+grep -rl "supabase" dist/            # expect no output
+npx wrangler deploy --dry-run        # expect the same bindings as before, nothing Supabase-related
 ```
-
-`supabase-sql.test.mjs` parses what it genuinely can (CREATE TABLE/TYPE/INDEX/INSERT,
-via `node-sql-parser`) and does purpose-built structural checks for what
-that parser doesn't support (`CREATE POLICY`, `ALTER TABLE ... ENABLE ROW
-LEVEL SECURITY`, dollar-quoted function bodies): balanced parentheses,
-balanced `$$` pairs, every foreign key pointing at a table that's actually
-defined, and every policy targeting a table that actually has RLS enabled.
-See the comment at the top of that file for exactly why each parser gap is
-handled the way it is rather than reported as a false failure.
