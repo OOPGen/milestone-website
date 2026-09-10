@@ -151,9 +151,23 @@ const helperFnPattern = new RegExp(`\\b(${HELPER_FNS.join('|')})\\s*\\(`, 'i');
 // exception has somewhere documented to go, not because one exists today.
 const PUBLIC_ROLE_ALLOWLIST = [];
 
-const policyStatementPattern = /create policy "([^"]+)"\s*\non public\.(\w+)\s+for\s+(\w+)\s*\n(to\s+[a-z, ]+\n)?([\s\S]*?);/gi;
-const policyStatements = [...allPolicyText.matchAll(policyStatementPattern)];
+// Combined so the same role-clause checks cover both application-table
+// policies (supabase/policies/) and Storage policies (supabase/storage/) —
+// `on public.<table>` and `on storage.objects` are both matched.
+const allRlsPolicyText = allPolicyText + '\n' + allStorageText;
+const policyStatementPattern = /create policy "([^"]+)"\s*\non (?:public|storage)\.(\w+)\s+for\s+(\w+)\s*\n(to\s+[a-z, ]+\n)?([\s\S]*?);/gi;
+const policyStatements = [...allRlsPolicyText.matchAll(policyStatementPattern)];
 ok('At least 30 policy statements were extracted for role-clause checking', policyStatements.length >= 30, String(policyStatements.length));
+
+const storagePolicyStatements = [...allStorageText.matchAll(policyStatementPattern)];
+// Exactly 4 now, all SELECT: parent_media_select_by_parent,
+// parent_media_select_by_staff, school_documents_select_public,
+// school_documents_select_by_parent_or_staff. The 3 INSERT policies went in
+// Decision 2, the 3 DELETE policies in Change 1, and the 2 in-place
+// byte-overwrite UPDATE policies in this change — leaving storage.objects
+// with no client-side write policy of any kind.
+ok('Exactly 4 Storage policy statements remain, all SELECT', storagePolicyStatements.length === 4,
+  storagePolicyStatements.map(m => `${m[1]} (${m[3]})`).join(', '));
 
 for (const m of policyStatements) {
   const [, policyName, table, , roleClauseRaw, body] = m;
@@ -193,6 +207,321 @@ for (const m of policyStatements) {
     ok(`policy "${policyName}" (${table}): calls a role-check helper and explicitly targets TO authenticated`,
       targetsAuthenticated, `role clause: "${roleClause || '(none — defaults to PUBLIC)'}"`);
   }
+}
+
+/* ---------- Storage bucket policy checks (supabase/storage/buckets.sql) ---------- */
+// Bucket-specific assertions beyond the generic role-clause checks above:
+// each bucket's actual read/write shape is verified by name and body text,
+// not just "has a TO clause" — a policy can have a perfectly correct role
+// target and still grant the wrong access.
+
+const byName = Object.fromEntries(storagePolicyStatements.map(m => [m[1], m]));
+
+// FINAL storage.objects write shape: ZERO client-side write policies of any
+// kind — no INSERT, no UPDATE (the two update-by-staff policies that used to
+// allow overwriting object bytes in place are gone), no DELETE, for any
+// bucket. Every byte written/removed goes through manage-media's
+// service-role client.
+for (const op of ['insert', 'update', 'delete']) {
+  const offenders = storagePolicyStatements.filter(m => m[3].toLowerCase() === op);
+  ok(`storage.objects: ZERO client-side ${op.toUpperCase()} policies for any bucket`,
+    offenders.length === 0, offenders.map(m => m[1]).join(', '));
+}
+// The two former in-place byte-overwrite policies must be genuinely gone.
+for (const gone of ['public_media_update_by_staff', 'parent_media_update_by_staff']) {
+  ok(`storage policy "${gone}" (in-place byte overwrite) no longer exists`, !allStorageText.includes(`"${gone}"`));
+}
+// What remains must be SELECT only.
+for (const m of storagePolicyStatements) {
+  ok(`storage policy "${m[1]}" is a SELECT policy (only reads remain client-side)`, m[3].toLowerCase() === 'select', m[3]);
+}
+
+// school-documents: the anon-facing read policy must never expose a
+// parent-only or unpublished document — its body must require both
+// status = 'published' and visibility = 'public'.
+{
+  const m = byName['school_documents_select_public'];
+  ok('storage policy "school_documents_select_public" exists', !!m);
+  if (m) {
+    const body = m[5];
+    ok('storage policy "school_documents_select_public": requires status = \'published\'', /status\s*=\s*'published'/i.test(body));
+    ok('storage policy "school_documents_select_public": requires visibility = \'public\'', /visibility\s*=\s*'public'/i.test(body));
+    ok('storage policy "school_documents_select_public": calls no role-check helper', !helperFnPattern.test(body));
+  }
+}
+
+// The mixed public/authenticated document-visibility policy must be split,
+// not present as a single combined-branch policy.
+ok('storage policy "school_documents_select_if_document_visible" (the old mixed-branch policy) no longer exists',
+  !allStorageText.includes('school_documents_select_if_document_visible'));
+ok('storage policy "school_documents_select_by_parent_or_staff" exists (the split-off authenticated half)',
+  !!byName['school_documents_select_by_parent_or_staff']);
+
+// Object-to-metadata correlation: every SELECT policy on a private bucket
+// that is meant to gate access by a specific catalogued record (as opposed
+// to a deliberate staff blanket-bucket-read) must bind
+// storage.objects.bucket_id AND storage.objects.name to the relevant
+// metadata table's storage_path column, AND check that table's
+// published/deleted (and, where applicable, visibility) state — not just
+// call a role-check helper with no row-level correlation at all. This is
+// what actually stops a signed-in parent from reading an unrelated,
+// draft, or deleted object merely by knowing/guessing its path.
+//
+// parent_media_select_by_staff is deliberately exempted: it is a documented,
+// intentional full-bucket read for active staff only (they must be able to
+// see uncatalogued/draft objects to manage them), not a catalogue-correlated
+// read — see the comment directly above it in supabase/storage/buckets.sql.
+const CORRELATION_REQUIRED_POLICIES = {
+  parent_media_select_by_parent: {
+    bucket: 'parent-media',
+    storagePathRefs: [/\bp\.storage_path\s*=\s*storage\.objects\.name\b/i],
+    stateChecks: [/p\.status\s*=\s*'published'/i, /p\.deleted_at is null/i, /g\.status\s*=\s*'published'/i, /g\.deleted_at is null/i],
+  },
+  school_documents_select_public: {
+    bucket: 'school-documents',
+    storagePathRefs: [/\bv\.storage_path\s*=\s*storage\.objects\.name\b/i],
+    stateChecks: [/d\.status\s*=\s*'published'/i, /d\.visibility\s*=\s*'public'/i, /d\.deleted_at is null/i],
+  },
+  school_documents_select_by_parent_or_staff: {
+    bucket: 'school-documents',
+    storagePathRefs: [/\bv\.storage_path\s*=\s*storage\.objects\.name\b/i],
+    stateChecks: [/d\.deleted_at is null/i],
+  },
+};
+
+for (const [name, spec] of Object.entries(CORRELATION_REQUIRED_POLICIES)) {
+  const m = byName[name];
+  ok(`storage policy "${name}" exists`, !!m);
+  if (!m) continue;
+  const body = m[5];
+  ok(`storage policy "${name}": bucket_id is bound to '${spec.bucket}'`, new RegExp(`bucket_id\\s*=\\s*'${spec.bucket}'`, 'i').test(body));
+  for (const re of spec.storagePathRefs) {
+    ok(`storage policy "${name}": storage.objects.name is correlated to a storage_path column`, re.test(body), re.toString());
+  }
+  for (const re of spec.stateChecks) {
+    ok(`storage policy "${name}": checks published/deleted/visibility state (${re})`, re.test(body));
+  }
+}
+
+/* ---------- current-version-only access for anon/Parent (superseded document versions) ---------- */
+// Anon and Parent must be restricted to the CURRENT document version only
+// (documents.current_version_id) — a superseded version's row/object must
+// stay reachable by active staff (for audit/version-history review) but
+// nobody else, even once its parent document is published. Checked at both
+// the table layer (document_versions rows) and the storage layer (the
+// actual PDF bytes) — either layer denying access is sufficient, but the
+// design intends both to agree.
+
+const byPolicyName = Object.fromEntries(policyStatements.map(m => [m[1], m]));
+
+// Anon-only policies: exactly one current_version_id check (the only
+// branch there is), tying the row/object to being the document's live
+// version.
+for (const [name, currentVersionRef] of [
+  ['document_versions_select_public_anon', /d\.current_version_id\s*=\s*document_versions\.id/i],
+  ['school_documents_select_public', /v\.id\s*=\s*d\.current_version_id/i],
+]) {
+  const m = byPolicyName[name] || byName[name];
+  ok(`policy "${name}" exists`, !!m);
+  if (!m) continue;
+  const body = m[5];
+  ok(`policy "${name}": Anon is restricted to the CURRENT document version`, currentVersionRef.test(body));
+}
+
+// Parent-or-staff policies: the current_version_id check must be present
+// in the Parent branch, and current_version_id must appear EXACTLY ONCE in
+// the whole statement — i.e. nowhere in the Staff branch — so staff keeps
+// unrestricted access to every historical version.
+for (const [name, parentBranchRef] of [
+  ['document_versions_select_parent_or_staff', /is_active_parent\(\)\s+and\s+d\.current_version_id\s*=\s*document_versions\.id/i],
+  ['school_documents_select_by_parent_or_staff', /is_active_parent\(\)\s+and\s+v\.id\s*=\s*d\.current_version_id/i],
+]) {
+  const m = byPolicyName[name] || byName[name];
+  ok(`policy "${name}" exists`, !!m);
+  if (!m) continue;
+  const body = m[5];
+  ok(`policy "${name}": Parent branch is restricted to the CURRENT document version`, parentBranchRef.test(body));
+  const occurrences = (body.match(/current_version_id/gi) || []).length;
+  ok(`policy "${name}": current_version_id appears exactly once (only in the Parent branch — Staff branch is unrestricted)`,
+    occurrences === 1, `found ${occurrences} occurrence(s)`);
+  const staffBranch = (body.match(/or\s*\(public\.is_active_staff\(\)[^)]*\)/i) || [''])[0];
+  ok(`policy "${name}": Staff branch does not contain a current_version_id restriction`, !/current_version_id/i.test(staffBranch), staffBranch);
+}
+
+// Draft, archived, soft-deleted, orphaned, and guessed document paths must
+// remain blocked after this change — regression-check that the pre-existing
+// status/deleted_at/exists-correlation guards are all still present
+// (a status check blocks draft/archived; a deleted_at check blocks
+// soft-deleted; the `exists (...)` correlation itself is what blocks
+// orphaned objects and guessed paths, since no matching row means no
+// access regardless of any role check passing).
+for (const name of ['document_versions_select_public_anon', 'document_versions_select_parent_or_staff']) {
+  const m = byPolicyName[name];
+  ok(`policy "${name}" exists`, !!m);
+  if (!m) continue;
+  ok(`policy "${name}": still correlates via an EXISTS clause (blocks orphaned/guessed rows)`, /exists\s*\(/i.test(m[5]));
+  ok(`policy "${name}": still requires d.deleted_at is null somewhere (blocks soft-deleted documents)`, /d\.deleted_at is null/i.test(m[5]));
+}
+for (const name of ['school_documents_select_public', 'school_documents_select_by_parent_or_staff']) {
+  const m = byName[name];
+  ok(`policy "${name}" exists`, !!m);
+  if (!m) continue;
+  ok(`policy "${name}": still correlates via an EXISTS clause (blocks orphaned/guessed objects)`, /exists\s*\(/i.test(m[5]));
+  ok(`policy "${name}": still requires d.deleted_at is null somewhere (blocks soft-deleted documents)`, /d\.deleted_at is null/i.test(m[5]));
+}
+ok('policy "document_versions_select_public_anon": still requires d.status = \'published\' (blocks draft/archived documents)',
+  /d\.status\s*=\s*'published'/i.test((byPolicyName['document_versions_select_public_anon'] || [])[5] || ''));
+ok('policy "school_documents_select_public": still requires d.status = \'published\' (blocks draft/archived documents)',
+  /d\.status\s*=\s*'published'/i.test((byName['school_documents_select_public'] || [])[5] || ''));
+
+/* ---------- storage uploads have no client-reachable INSERT policy ---------- */
+// Decision 2 (enforce bucket selection server-side): a client can never
+// choose a bucket if there is no INSERT policy at all granting that
+// operation to `authenticated` on storage.objects — the manage-media Edge
+// Function's service-role client is the only writer. Assert the three
+// former direct-upload policies genuinely no longer exist (not just
+// renamed) for all three buckets.
+for (const removedName of ['public_media_insert_by_staff', 'parent_media_insert_by_staff', 'school_documents_insert_by_staff']) {
+  ok(`storage policy "${removedName}" (direct client upload) no longer exists`, !allStorageText.includes(`"${removedName}"`));
+}
+// And confirm no OTHER insert policy silently replaced them under a
+// different name — there must be zero `for insert` policies left on
+// storage.objects at all now.
+const remainingStorageInsertPolicies = storagePolicyStatements.filter(m => m[3].toLowerCase() === 'insert');
+ok('No storage.objects INSERT policy remains for any bucket (all uploads go through manage-media)',
+  remainingStorageInsertPolicies.length === 0, remainingStorageInsertPolicies.map(m => m[1]).join(', '));
+
+/* ---------- storage.objects has NO client-reachable DELETE policy (Change 1) ---------- */
+// No browser client, Super Admin included, may remove a Storage object with
+// the publishable key — object removal happens only through manage-media's
+// `delete` operation (service-role).
+for (const removedName of ['public_media_delete_by_staff', 'parent_media_delete_by_staff', 'school_documents_delete_by_super_admin']) {
+  ok(`storage policy "${removedName}" (direct client delete) no longer exists`, !allStorageText.includes(`"${removedName}"`));
+}
+const remainingStorageDeletePolicies = storagePolicyStatements.filter(m => m[3].toLowerCase() === 'delete');
+ok('No storage.objects DELETE policy remains for any bucket (all deletes go through manage-media)',
+  remainingStorageDeletePolicies.length === 0, remainingStorageDeletePolicies.map(m => m[1]).join(', '));
+
+// The one documented exception: parent_media_select_by_staff must remain a
+// bucket-only check with no per-object correlation (that's the point of it),
+// so assert the exemption is still true rather than silently assuming it.
+{
+  const m = byName['parent_media_select_by_staff'];
+  ok('storage policy "parent_media_select_by_staff" exists', !!m);
+  if (m) {
+    const body = m[5];
+    ok('storage policy "parent_media_select_by_staff": remains a bucket-only staff check with no gallery_photos correlation (documented exception)',
+      !/gallery_photos|galleries/i.test(body));
+  }
+}
+
+/* ---------- media/document tables: no client-reachable write policy at all ---------- */
+// Change 3 (one controlled server-side workflow) removed client INSERT/UPDATE;
+// Change 1 removed the last client DELETE. gallery_photos / documents /
+// document_versions now have SELECT policies ONLY — every write of any kind
+// goes through the manage-media Edge Function's service-role client.
+
+const appPolicyByName = Object.fromEntries(policyStatements.map(m => [m[1], m]));
+const policyStmtsFor = (table) => policyStatements.filter(m => m[2] === table);
+
+for (const table of ['gallery_photos', 'documents', 'document_versions']) {
+  const stmts = policyStmtsFor(table);
+  const ops = stmts.map(m => m[3].toLowerCase());
+  ok(`table "${table}": has NO INSERT policy (creation goes only through manage-media)`, !ops.includes('insert'),
+    stmts.filter(m => m[3].toLowerCase() === 'insert').map(m => m[1]).join(', '));
+  ok(`table "${table}": has NO UPDATE policy (mutation goes only through manage-media)`, !ops.includes('update'),
+    stmts.filter(m => m[3].toLowerCase() === 'update').map(m => m[1]).join(', '));
+  ok(`table "${table}": has NO DELETE policy (deletion goes only through manage-media, Change 1)`, !ops.includes('delete'),
+    stmts.filter(m => m[3].toLowerCase() === 'delete').map(m => m[1]).join(', '));
+  const nonSelect = stmts.filter(m => m[3].toLowerCase() !== 'select');
+  ok(`table "${table}": has NO non-SELECT policy whatsoever (read-only to every client role)`,
+    nonSelect.length === 0, nonSelect.map(m => `${m[1]} (${m[3]})`).join(', '));
+  // Specific removed policy names must be genuinely gone, not renamed.
+  for (const gone of [`${table}_insert_by_staff`, `${table}_update_by_staff`,
+                      `${table}_delete_by_super_admin`, `${table}_delete_by_staff`]) {
+    ok(`policy "${gone}" no longer exists`, !allPolicyText.includes(`"${gone}"`));
+  }
+}
+
+// A browser cannot create an audit-log row: audit_log has no INSERT policy
+// (and never has) — assert it stays that way.
+ok('table "audit_log": has NO INSERT policy (audit rows are written only by the service-role path)',
+  !policyStmtsFor('audit_log').some(m => m[3].toLowerCase() === 'insert'));
+
+/* ---------- galleries: empty-album management stays direct; cover + delete do not ---------- */
+{
+  const stmts = policyStmtsFor('galleries');
+  const ops = stmts.map(m => m[3].toLowerCase());
+
+  // INSERT retained, still storage-path-free.
+  const ins = appPolicyByName['galleries_insert_by_staff'];
+  ok('policy "galleries_insert_by_staff" still exists (empty-album creation retained)', !!ins);
+  if (ins) {
+    ok('policy "galleries_insert_by_staff": WITH CHECK forbids a cover_storage_path at creation',
+      /cover_storage_path is null/i.test(ins[5]));
+  }
+
+  // UPDATE retained, but cover_storage_path is now pinned immutable via the
+  // SECURITY DEFINER helper (Change 2) — a client UPDATE cannot set/change it.
+  const upd = appPolicyByName['galleries_update_by_staff'];
+  ok('policy "galleries_update_by_staff" still exists (staff manage album title/status/visibility)', !!upd);
+  if (upd) {
+    ok('policy "galleries_update_by_staff": WITH CHECK pins cover_storage_path via gallery_current_cover_path()',
+      /cover_storage_path is not distinct from\s+public\.gallery_current_cover_path\(\s*id\s*\)/i.test(upd[5]));
+  }
+
+  // DELETE removed (Change 1) — no album hard-delete via the publishable key,
+  // Super Admin included.
+  ok('table "galleries": has NO DELETE policy (hard delete goes only through manage-media, Change 1)',
+    !ops.includes('delete'), stmts.filter(m => m[3].toLowerCase() === 'delete').map(m => m[1]).join(', '));
+  ok('policy "galleries_delete_by_super_admin" no longer exists', !allPolicyText.includes('"galleries_delete_by_super_admin"'));
+
+  // galleries is the ONLY media/document table that keeps a client INSERT + UPDATE.
+  ok('table "galleries": still has INSERT and UPDATE (the documented, storage-path-free exception)',
+    ops.includes('insert') && ops.includes('update'));
+}
+
+/* ---------- the gallery-cover helper migration (Change 2) ---------- */
+{
+  const coverMig = migrationFiles.find(f => /gallery_cover_helper/.test(f));
+  ok('migration 20260101000010_gallery_cover_helper.sql exists', !!coverMig);
+  if (coverMig) {
+    const sql = fs.readFileSync(coverMig, 'utf8');
+    ok('gallery-cover helper: carries the "NOT YET APPLIED" banner', sql.includes('NOT YET APPLIED'));
+    ok('gallery-cover helper: defines public.gallery_current_cover_path(uuid)',
+      /create or replace function public\.gallery_current_cover_path\s*\(\s*p_gallery_id uuid\s*\)/i.test(sql));
+    ok('gallery-cover helper: is SECURITY DEFINER with a fixed search_path',
+      /security definer/i.test(sql) && /set search_path = public/i.test(sql));
+    ok('gallery-cover helper: reads only galleries.cover_storage_path (widens no access)',
+      /select cover_storage_path from public\.galleries where id = p_gallery_id/i.test(sql));
+    ok('gallery-cover helper: revokes EXECUTE from public and anon, grants only authenticated',
+      /revoke execute on function public\.gallery_current_cover_path\(uuid\) from public/i.test(sql) &&
+      /revoke execute on function public\.gallery_current_cover_path\(uuid\) from anon/i.test(sql) &&
+      /grant execute on function public\.gallery_current_cover_path\(uuid\) to authenticated/i.test(sql));
+  }
+}
+
+/* ---------- draft content cannot be read until published (regression) ---------- */
+// The controlled workflow lands everything as draft; these read policies
+// are what keep a draft invisible to anon/parent until a later publish.
+for (const [name, table] of [
+  ['gallery_photos_select_public_anon', 'gallery_photos'],
+  ['gallery_photos_select_published_by_parent', 'gallery_photos'],
+  ['documents_select_public_anon', 'documents'],
+  ['documents_select_published_by_parent', 'documents'],
+]) {
+  const m = appPolicyByName[name];
+  ok(`policy "${name}" exists`, !!m);
+  if (m) ok(`policy "${name}": requires status = 'published' (draft stays invisible)`, /status\s*=\s*'published'/i.test(m[5]));
+}
+// Existing three-tier read model still intact for both tables.
+for (const table of ['gallery_photos', 'documents', 'galleries']) {
+  const selects = policyStmtsFor(table).filter(m => m[3].toLowerCase() === 'select').map(m => m[1]);
+  ok(`table "${table}": still has anon, parent, and staff SELECT tiers`,
+    selects.some(n => /public_anon$/.test(n)) &&
+    selects.some(n => /by_parent$/.test(n)) &&
+    selects.some(n => /by_staff$/.test(n)),
+    selects.join(', '));
 }
 
 /* ---------- real syntax parsing for the statements the parser supports ---------- */

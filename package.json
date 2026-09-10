@@ -16,7 +16,8 @@
     "test:smoke:accounts": "node tests/dashboard-smoke.test.mjs",
     "build:phase1": "vite build --config vite.config.phase1.js",
     "test:supabase-sql": "node tests/supabase-sql.test.mjs",
-    "test:supabase-client": "node tests/supabase-client.test.mjs"
+    "test:supabase-client": "node tests/supabase-client.test.mjs",
+    "test:supabase-media": "node tests/manage-media-function.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",
