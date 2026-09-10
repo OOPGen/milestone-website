@@ -20,22 +20,27 @@ using (status = 'published' and visibility = 'public' and deleted_at is null);
 
 create policy "galleries_select_published_by_parent"
 on public.galleries for select
+to authenticated
 using (public.is_active_parent() and status = 'published' and deleted_at is null);
 
 create policy "galleries_select_all_by_staff"
 on public.galleries for select
+to authenticated
 using (public.is_active_staff() and deleted_at is null);
 
 create policy "galleries_insert_by_staff"
 on public.galleries for insert
+to authenticated
 with check (public.is_active_staff());
 
 create policy "galleries_update_by_staff"
 on public.galleries for update
+to authenticated
 using (public.is_active_staff());
 
 create policy "galleries_delete_by_super_admin"
 on public.galleries for delete
+to authenticated
 using (public.has_role('SUPER_ADMIN'));
 
 -- gallery_photos ----------------------------------------------------------
@@ -54,6 +59,7 @@ using (
 
 create policy "gallery_photos_select_published_by_parent"
 on public.gallery_photos for select
+to authenticated
 using (
   public.is_active_parent() and status = 'published' and deleted_at is null
   and exists (
@@ -65,16 +71,20 @@ using (
 
 create policy "gallery_photos_select_all_by_staff"
 on public.gallery_photos for select
+to authenticated
 using (public.is_active_staff() and deleted_at is null);
 
 create policy "gallery_photos_insert_by_staff"
 on public.gallery_photos for insert
+to authenticated
 with check (public.is_active_staff());
 
 create policy "gallery_photos_update_by_staff"
 on public.gallery_photos for update
+to authenticated
 using (public.is_active_staff());
 
 create policy "gallery_photos_delete_by_super_admin"
 on public.gallery_photos for delete
+to authenticated
 using (public.has_role('SUPER_ADMIN'));

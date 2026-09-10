@@ -18,22 +18,27 @@ using (status = 'published' and visibility = 'public' and deleted_at is null);
 
 create policy "documents_select_published_by_parent"
 on public.documents for select
+to authenticated
 using (public.is_active_parent() and status = 'published' and deleted_at is null);
 
 create policy "documents_select_all_by_staff"
 on public.documents for select
+to authenticated
 using (public.is_active_staff() and deleted_at is null);
 
 create policy "documents_insert_by_staff"
 on public.documents for insert
+to authenticated
 with check (public.is_active_staff());
 
 create policy "documents_update_by_staff"
 on public.documents for update
+to authenticated
 using (public.is_active_staff());
 
 create policy "documents_delete_by_super_admin"
 on public.documents for delete
+to authenticated
 using (public.has_role('SUPER_ADMIN'));
 
 -- document_versions ------------------------------------------------------
@@ -41,15 +46,34 @@ using (public.has_role('SUPER_ADMIN'));
 -- not duplicated onto this table, it is checked via the same three tiers
 -- against `documents`.
 
-create policy "document_versions_select_if_document_visible"
+-- Split into two policies (rather than one policy with a single `to`
+-- clause) because the original combined an anon-safe branch with two
+-- authenticated-only branches in one OR'd USING expression — a single
+-- policy cannot scope different branches of its own expression to
+-- different roles. Postgres OR's multiple permissive policies for the
+-- same operation together, so these two remain logically equivalent to
+-- the original combined condition.
+
+create policy "document_versions_select_public_anon"
 on public.document_versions for select
+to anon, authenticated
+using (
+  exists (
+    select 1 from public.documents d
+    where d.id = document_versions.document_id
+      and d.status = 'published' and d.visibility = 'public' and d.deleted_at is null
+  )
+);
+
+create policy "document_versions_select_parent_or_staff"
+on public.document_versions for select
+to authenticated
 using (
   exists (
     select 1 from public.documents d
     where d.id = document_versions.document_id
       and (
-        (d.status = 'published' and d.visibility = 'public' and d.deleted_at is null)
-        or (public.is_active_parent() and d.status = 'published' and d.deleted_at is null)
+        (public.is_active_parent() and d.status = 'published' and d.deleted_at is null)
         or (public.is_active_staff() and d.deleted_at is null)
       )
   )
@@ -57,6 +81,7 @@ using (
 
 create policy "document_versions_insert_by_staff"
 on public.document_versions for insert
+to authenticated
 with check (public.is_active_staff());
 
 -- No update policy: a version, once created, is immutable — replacing a
@@ -65,4 +90,5 @@ with check (public.is_active_staff());
 
 create policy "document_versions_delete_by_super_admin"
 on public.document_versions for delete
+to authenticated
 using (public.has_role('SUPER_ADMIN'));

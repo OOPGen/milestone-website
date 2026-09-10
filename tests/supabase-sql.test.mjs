@@ -130,6 +130,71 @@ ok('Every table with a staged policy has RLS enabled in a migration', policiedWi
 const rlsWithoutPolicy = [...rlsEnabledTables].filter(t => !policiedTables.has(t) && !allStorageText.includes(`'${t}'`));
 ok('Every RLS-enabled table has at least one staged policy', rlsWithoutPolicy.length === 0, rlsWithoutPolicy.join(', '));
 
+/* ---------- function-call policies must target `to authenticated` ---------- */
+// Postgres requires the calling role to hold EXECUTE on a function referenced
+// inside a policy's USING/WITH CHECK expression, independent of RLS row
+// filtering — and `CREATE POLICY` with no `TO` clause defaults to `PUBLIC`
+// (which includes `anon`). A policy that calls one of the four
+// SECURITY DEFINER role-check helpers but omits `TO authenticated` would
+// therefore rely on the `anon`/`PUBLIC` default rather than an explicit
+// grant — exactly what this project's "Change A" set out to remove. These
+// checks read the policy text only; nothing here executes or connects.
+
+const HELPER_FNS = ['current_profile', 'has_role', 'is_active_staff', 'is_active_parent'];
+const helperFnPattern = new RegExp(`\\b(${HELPER_FNS.join('|')})\\s*\\(`, 'i');
+
+// The final design has NO implicit-PUBLIC policy on any application table:
+// every policy must carry an explicit `to` clause, either `to anon,
+// authenticated` (an intentional public-read policy) or `to authenticated`
+// (everything else — parent/staff/Super-Admin/own-profile). This allowlist
+// is deliberately empty: it exists only so a future, genuinely-justified
+// exception has somewhere documented to go, not because one exists today.
+const PUBLIC_ROLE_ALLOWLIST = [];
+
+const policyStatementPattern = /create policy "([^"]+)"\s*\non public\.(\w+)\s+for\s+(\w+)\s*\n(to\s+[a-z, ]+\n)?([\s\S]*?);/gi;
+const policyStatements = [...allPolicyText.matchAll(policyStatementPattern)];
+ok('At least 30 policy statements were extracted for role-clause checking', policyStatements.length >= 30, String(policyStatements.length));
+
+for (const m of policyStatements) {
+  const [, policyName, table, , roleClauseRaw, body] = m;
+  const roleClause = (roleClauseRaw || '').trim();
+  const isPublic = roleClause === '';
+  const targetsAnon = /\banon\b/i.test(roleClause);
+  const targetsAuthenticated = /\bauthenticated\b/i.test(roleClause);
+  const callsHelperFn = helperFnPattern.test(body);
+
+  // (4) Every policy must carry an explicit TO clause — no reliance on the
+  // implicit-PUBLIC default, unless explicitly allowlisted above with a
+  // documented technical reason (there is currently no such exception).
+  ok(`policy "${policyName}" (${table}): has an explicit TO role clause (not implicit PUBLIC)`,
+    !isPublic || PUBLIC_ROLE_ALLOWLIST.includes(policyName),
+    isPublic ? 'role clause is empty — defaults to PUBLIC' : `role clause: "${roleClause}"`);
+
+  // (3) Every explicit role target is one of the two intended shapes: an
+  // intentional public-read policy (anon + authenticated) or an
+  // authenticated-only policy (parent/staff/Super-Admin/own-profile).
+  if (!isPublic) {
+    ok(`policy "${policyName}" (${table}): role target includes authenticated ("anon, authenticated" for public-read, or "authenticated" alone otherwise)`,
+      targetsAuthenticated, `role clause: "${roleClause}"`);
+  }
+
+  // (5) An intentional public-read policy must never call a role-check
+  // helper — anon has no profile row to evaluate one against, and mixing
+  // the two would make "public" access silently depend on a check that, by
+  // definition, only ever passes for signed-in, active-role rows.
+  if (targetsAnon) {
+    ok(`policy "${policyName}" (${table}): is TO anon (public-read) and calls no role-check helper`,
+      !callsHelperFn);
+  }
+
+  // (6) Any policy that calls a role-check helper must explicitly target TO
+  // authenticated — never rely on the PUBLIC/anon default to reach it.
+  if (callsHelperFn) {
+    ok(`policy "${policyName}" (${table}): calls a role-check helper and explicitly targets TO authenticated`,
+      targetsAuthenticated, `role clause: "${roleClause || '(none — defaults to PUBLIC)'}"`);
+  }
+}
+
 /* ---------- real syntax parsing for the statements the parser supports ---------- */
 
 const parser = new Parser();

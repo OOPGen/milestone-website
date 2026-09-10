@@ -21,18 +21,21 @@
 -- own role/name after login).
 create policy "profiles_select_own"
 on public.profiles for select
+to authenticated
 using (id = auth.uid());
 
 -- Staff (Staff Admin or Super Admin) can read PARENT profiles only —
 -- mirrors "parents.manage", which both roles hold.
 create policy "profiles_select_parents_by_staff"
 on public.profiles for select
+to authenticated
 using (public.is_active_staff() and role = 'PARENT');
 
 -- Super Admin can read every profile, including other staff — mirrors
 -- "staff.manage", which only SUPER_ADMIN holds.
 create policy "profiles_select_all_by_super_admin"
 on public.profiles for select
+to authenticated
 using (public.has_role('SUPER_ADMIN'));
 
 -- INSERT --------------------------------------------------------------------
@@ -50,6 +53,7 @@ using (public.has_role('SUPER_ADMIN'));
 -- would otherwise re-trigger this same RLS check recursively).
 create policy "profiles_update_own_name_only"
 on public.profiles for update
+to authenticated
 using (id = auth.uid())
 with check (
   id = auth.uid()
@@ -62,6 +66,7 @@ with check (
 -- cannot change its role — mirrors "parents.manage".
 create policy "profiles_update_parent_status_by_staff"
 on public.profiles for update
+to authenticated
 using (public.is_active_staff() and role = 'PARENT')
 with check (role = 'PARENT');
 
@@ -70,6 +75,7 @@ with check (role = 'PARENT');
 -- above: the lock-out rules are NOT enforced here.
 create policy "profiles_update_any_by_super_admin"
 on public.profiles for update
+to authenticated
 using (public.has_role('SUPER_ADMIN'));
 
 -- DELETE ----------------------------------------------------------------------

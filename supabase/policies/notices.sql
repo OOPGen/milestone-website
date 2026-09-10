@@ -16,18 +16,22 @@ using (status = 'published' and visibility = 'public' and deleted_at is null);
 
 create policy "notices_select_published_by_parent"
 on public.notices for select
+to authenticated
 using (public.is_active_parent() and status = 'published' and deleted_at is null);
 
 create policy "notices_select_all_by_staff"
 on public.notices for select
+to authenticated
 using (public.is_active_staff() and deleted_at is null);
 
 create policy "notices_insert_by_staff"
 on public.notices for insert
+to authenticated
 with check (public.is_active_staff());
 
 create policy "notices_update_by_staff"
 on public.notices for update
+to authenticated
 using (public.is_active_staff());
 
 -- Hard delete: Super Admin only — mirrors "content.delete.hard", which
@@ -35,4 +39,5 @@ using (public.is_active_staff());
 -- 'archived'), never DELETE.
 create policy "notices_delete_by_super_admin"
 on public.notices for delete
+to authenticated
 using (public.has_role('SUPER_ADMIN'));

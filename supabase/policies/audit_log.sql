@@ -12,6 +12,7 @@
 
 create policy "audit_log_select_by_super_admin"
 on public.audit_log for select
+to authenticated
 using (public.has_role('SUPER_ADMIN'));
 
 -- Deliberately no insert/update/delete policy for any client role — append

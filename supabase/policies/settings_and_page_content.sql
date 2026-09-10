@@ -7,14 +7,17 @@
 -- display (that's page_content's job) — settings are internal configuration.
 create policy "settings_select_by_staff"
 on public.settings for select
+to authenticated
 using (public.is_active_staff());
 
 create policy "settings_upsert_by_staff"
 on public.settings for insert
+to authenticated
 with check (public.is_active_staff());
 
 create policy "settings_update_by_staff"
 on public.settings for update
+to authenticated
 using (public.is_active_staff());
 -- No delete policy: settings rows are overwritten, not removed.
 
@@ -37,12 +40,15 @@ using (status = 'published');
 -- before being applied — flag this explicitly for review.
 create policy "page_content_select_all_by_staff"
 on public.page_content for select
+to authenticated
 using (public.is_active_staff());
 
 create policy "page_content_upsert_by_staff"
 on public.page_content for insert
+to authenticated
 with check (public.is_active_staff());
 
 create policy "page_content_update_by_staff"
 on public.page_content for update
+to authenticated
 using (public.is_active_staff());
