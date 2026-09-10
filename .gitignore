@@ -10,6 +10,7 @@ node_modules/
 *.log
 supabase/.temp/
 dist/
+dist-admin/
 _mock-mail.json
 .wrangler-local-test*
 _wtest*.log

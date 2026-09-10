@@ -21,7 +21,8 @@
     "test:admin-portal": "node tests/admin-portal.test.mjs",
     "test:admin-portal:live": "node tests/admin-portal.live.test.mjs",
     "dev:admin": "vite",
-    "build:admin": "vite build"
+    "build:admin-portal": "node scripts/build-admin-portal.mjs",
+    "deploy:admin-portal": "npm run build:admin-portal && wrangler deploy --config wrangler.admin.toml"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",

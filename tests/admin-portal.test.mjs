@@ -165,6 +165,34 @@ ok('vite.config.js DOES list admin-portal.html as a Phase 2 entry',
 ok('admin-portal.html is noindex,nofollow',
   /<meta name="robots" content="noindex,nofollow"/.test(fs.readFileSync(path.join(root, 'admin-portal.html'), 'utf8')));
 
+/* ---------- standalone deployment config (separate project, no secrets) ---------- */
+
+const adminViteCfg = fs.readFileSync(path.join(root, 'vite.config.admin.js'), 'utf8');
+ok('vite.config.admin.js builds ONLY admin-portal.html', /input:\s*\{\s*adminPortal:\s*['"]admin-portal\.html['"]\s*\}/.test(adminViteCfg));
+ok('vite.config.admin.js outputs to dist-admin/', /outDir:\s*['"]dist-admin['"]/.test(adminViteCfg));
+ok('vite.config.admin.js sets publicDir:false (no public/ leak)', /publicDir:\s*false/.test(adminViteCfg));
+
+const wcfgRaw = fs.readFileSync(path.join(root, 'wrangler.admin.toml'), 'utf8');
+// strip TOML comment lines so prose ("no [vars], no secrets") isn't misread as config
+const wcfg = wcfgRaw.split('\n').filter(l => !l.trimStart().startsWith('#')).join('\n');
+ok('wrangler.admin.toml is a distinct project name (not milestone-website)',
+  /name\s*=\s*"milestone-admin-portal"/.test(wcfg) && !/name\s*=\s*"milestone-website"/.test(wcfg));
+ok('wrangler.admin.toml has no worker script (assets-only SPA)', !/^\s*main\s*=/m.test(wcfg));
+ok('wrangler.admin.toml serves dist-admin/ as an SPA', /directory\s*=\s*"\.\/dist-admin\/"/.test(wcfg) && /not_found_handling\s*=\s*"single-page-application"/.test(wcfg));
+ok('wrangler.admin.toml declares no D1 / R2 / KV / vars blocks',
+  !/\[\[d1_databases\]\]/.test(wcfg) && !/\[\[r2_buckets\]\]/.test(wcfg) && !/\[\[kv_namespaces\]\]/.test(wcfg) && !/^\s*\[vars\]/m.test(wcfg));
+ok('wrangler.admin.toml contains no secret-shaped string (config lines)',
+  !/service[_-]?role/i.test(wcfg) && !/SERVICE_ROLE_KEY/.test(wcfg) && !/BOOTSTRAP_TOKEN/.test(wcfg));
+
+ok('the PUBLIC wrangler.toml (Phase 1) is not touched by the admin deploy config',
+  !/admin-portal|dist-admin|milestone-admin/.test(fs.readFileSync(path.join(root, 'wrangler.toml'), 'utf8')));
+ok('dist-admin/ is gitignored', /^dist-admin\/$/m.test(fs.readFileSync(path.join(root, '.gitignore'), 'utf8')));
+
+const buildScript = fs.readFileSync(path.join(root, 'scripts/build-admin-portal.mjs'), 'utf8');
+ok('build-admin-portal.mjs renames the entry to index.html', /renameSync\([^)]*admin-portal\.html[\s\S]{0,60}index\.html|admin-portal\.html[\s\S]{0,40}->[\s\S]{0,20}index\.html/.test(buildScript));
+ok('build-admin-portal.mjs writes a noindex _headers file', /_headers[\s\S]{0,120}noindex/i.test(buildScript));
+ok('build-admin-portal.mjs self-checks for a leaked service-role key', /service\[_-\]\?role|SUPABASE_SERVICE_ROLE_KEY/.test(buildScript));
+
 /* ---------- summary ---------- */
 console.log('\nPASS ' + pass.length + '   FAIL ' + fail.length + '\n');
 if (fail.length) { console.log('FAILURES:'); fail.forEach(f => console.log('  x ' + f)); }

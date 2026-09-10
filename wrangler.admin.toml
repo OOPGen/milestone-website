@@ -1,0 +1,26 @@
+# ============================================================================
+# STANDALONE SUPER ADMIN PORTAL — separate Cloudflare Worker (assets-only).
+#
+# This is NOT the public website. It is a wholly separate project:
+#   - its own Worker name (milestone-admin-portal), so it deploys to its own
+#     *.workers.dev hostname and never shares state, routes, or a deploy
+#     history with `milestone-website`;
+#   - no `main` — it is a pure static SPA (dist-admin/, built by
+#     scripts/build-admin-portal.mjs) that talks straight to Supabase;
+#   - no D1, no R2, no KV, no secrets, no [vars]. The portal reads only the
+#     PUBLIC VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY, baked in at build
+#     time. Authorization is enforced by Supabase RLS + Auth, not here.
+#
+# Deploy:   npm run deploy:admin-portal
+#           (= npm run build:admin-portal && wrangler deploy --config wrangler.admin.toml)
+#
+# The public Phase 1 site (wrangler.toml -> milestone-website) is completely
+# untouched by anything in this file.
+# ============================================================================
+name = "milestone-admin-portal"
+compatibility_date = "2026-08-12"
+
+[assets]
+directory = "./dist-admin/"
+not_found_handling = "single-page-application"
+html_handling = "auto-trailing-slash"
