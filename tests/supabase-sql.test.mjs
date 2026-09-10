@@ -579,6 +579,39 @@ for (const file of allSqlFiles) {
 ok(`node-sql-parser successfully parsed ${parsedCount} CREATE TABLE/TYPE/INDEX/INSERT statements`, parsedCount >= 15, String(parsedCount));
 console.log(`(info: ${skippedCount} statements — CREATE POLICY, ALTER TABLE, CREATE FUNCTION — are Postgres-specific grammar this parser doesn't cover; verified by the structural checks above instead, not skipped from validation entirely.)`);
 
+/* ---------- content-audit trigger migration (20260101000011) ---------- */
+// The Super Admin portal writes content directly (RLS-gated); this trigger
+// is what produces the audit trail, since audit_log has no client INSERT
+// policy. Structural checks only — behaviour is covered by
+// tests/admin-portal.live.test.mjs against a real project.
+{
+  const auditMig = migrationFiles.find(f => /content_audit_trigger/.test(f));
+  ok('migration 20260101000011_content_audit_trigger.sql exists', !!auditMig);
+  if (auditMig) {
+    const sql = fs.readFileSync(auditMig, 'utf8');
+    ok('audit trigger: carries the "NOT YET APPLIED" banner', sql.includes('NOT YET APPLIED'));
+    ok('audit trigger: defines public.log_content_change() returns trigger',
+      /create or replace function public\.log_content_change\(\)\s*\n?\s*returns trigger/i.test(sql));
+    ok('audit trigger: function is SECURITY DEFINER with a fixed search_path',
+      /security definer/i.test(sql) && /set search_path = public/i.test(sql));
+    ok('audit trigger: actor is taken from the request JWT, not the client',
+      /auth\.uid\(\)/.test(sql) && /auth\.jwt\(\)\s*->>\s*'email'/.test(sql));
+    ok('audit trigger: inserts into public.audit_log', /insert into public\.audit_log/i.test(sql));
+    ok('audit trigger: derives the action from tg_op (create / update / soft_delete / delete_hard)',
+      /content\.create/.test(sql) && /content\.update/.test(sql) && /content\.soft_delete/.test(sql) && /content\.delete_hard/.test(sql));
+    ok('audit trigger: EXECUTE is revoked from public, anon, and authenticated (only the trigger machinery calls it)',
+      /revoke execute on function public\.log_content_change\(\) from public/i.test(sql)
+      && /revoke execute on function public\.log_content_change\(\) from anon/i.test(sql)
+      && /revoke execute on function public\.log_content_change\(\) from authenticated/i.test(sql));
+    for (const t of ['notices', 'news_posts', 'calendar_events', 'page_content', 'settings']) {
+      ok(`audit trigger: AFTER INSERT/UPDATE/DELETE trigger on public.${t}`,
+        new RegExp(`create trigger trg_audit_${t}\\s*\\n?\\s*after insert or update or delete on public\\.${t}\\s*\\n?\\s*for each row execute function public\\.log_content_change\\(\\)`, 'i').test(sql));
+      ok(`audit trigger: trg_audit_${t} is idempotent (DROP TRIGGER IF EXISTS)`,
+        new RegExp(`drop trigger if exists trg_audit_${t} on public\\.${t}`, 'i').test(sql));
+    }
+  }
+}
+
 /* ---------- migrations/ vs supabase/migrations/ don't collide ---------- */
 // migrations/0001_init.sql is the Cloudflare D1 schema, already committed
 // and must NOT be touched or replaced by this work.

@@ -17,7 +17,11 @@
     "build:phase1": "vite build --config vite.config.phase1.js",
     "test:supabase-sql": "node tests/supabase-sql.test.mjs",
     "test:supabase-client": "node tests/supabase-client.test.mjs",
-    "test:supabase-media": "node tests/manage-media-function.test.mjs"
+    "test:supabase-media": "node tests/manage-media-function.test.mjs",
+    "test:admin-portal": "node tests/admin-portal.test.mjs",
+    "test:admin-portal:live": "node tests/admin-portal.live.test.mjs",
+    "dev:admin": "vite",
+    "build:admin": "vite build"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",

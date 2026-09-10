@@ -25,6 +25,8 @@ is imported by nothing in the build.
 | Migration `20260101000009_function_permissions.sql` | **Applied** — least-privilege EXECUTE on the 4 helpers (`REVOKE … FROM public/anon`, `GRANT … TO authenticated`) |
 | Migration `20260101000010_gallery_cover_helper.sql` | **Applied** — `public.gallery_current_cover_path(uuid)` + its grants |
 | RLS policy files in `supabase/policies/` (all 8, 45 policies) | **Applied** via the SQL Editor. An idempotent consolidated re-apply block is kept in the session report / `README` of this work in case a partial state needs reconciling — every policy statement is safe to re-run as `DROP POLICY IF EXISTS … ; CREATE POLICY …` on the empty tables. |
+| `storage/buckets.sql` (3 buckets + 4 `storage.objects` SELECT policies) | **Applied** via the SQL Editor (Batch B). No client write policies exist. |
+| Migration `20260101000011_content_audit_trigger.sql` | ⬜ **staged, not yet applied** — one SQL Editor paste. Adds `public.log_content_change()` + AFTER triggers on the 5 editable content tables so the Super Admin portal's direct writes are audited. |
 
 All 11 application tables (`profiles`, `settings`, `page_content`, `notices`,
 `calendar_events`, `news_posts`, `galleries`, `gallery_photos`, `documents`,
@@ -40,9 +42,49 @@ session report. They are all `SELECT`-only and can be re-run any time.
 
 ---
 
+## 1b. Super Admin content-editing portal — IMPLEMENTED (Phase 2, not deployed)
+
+A minimal secure admin portal exists at `admin-portal.html` + `src/admin-portal/`.
+It uses **Supabase Auth for login and the already-applied RLS policies for
+authorization** — no custom backend, no Edge Function, no service-role key.
+Every content write is audited by the trigger in migration
+`20260101000011` (server-side, actor taken from the JWT).
+
+**Scope:** log in / out; a Super-Admin-only dashboard; create, edit, publish,
+unpublish, archive, and remove **notices, news posts, calendar events, page
+content, and site settings**; an Activity-log tab reading `audit_log`.
+Explicitly NOT included: staff invites, parent accounts, gallery/document
+uploads, media management (deferred — see §2).
+
+**To run it now (local, against the live project):**
+```
+# .env.local must have VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (it does)
+npm run dev            # then open http://localhost:5173/admin-portal.html
+# or a production static build:
+npm run build:admin    # dist/admin-portal.html + assets — deploy as a SEPARATE
+                       # static site (Cloudflare Pages / second Worker); do NOT
+                       # add it to the Phase 1 worker.
+```
+
+**One-time Super Admin bootstrap** (see §6 of the session report for the copy-paste version):
+1. Supabase Dashboard → **Authentication → Users → Add user** → enter the
+   Super Admin's email + a strong password, tick "Auto Confirm User".
+2. Supabase Dashboard → **SQL Editor**, run once:
+   ```sql
+   insert into public.profiles (id, email, name, role, status)
+   select u.id, u.email, 'Super Admin', 'SUPER_ADMIN', 'active'
+   from auth.users u
+   where u.email = 'REPLACE_WITH_THE_EMAIL'
+   on conflict (id) do update set role = 'SUPER_ADMIN', status = 'active';
+   ```
+3. Apply migration `20260101000011_content_audit_trigger.sql` in the SQL Editor.
+No `BOOTSTRAP_TOKEN`, no service-role key, no Edge Function involved.
+
+---
+
 ## 2. NOT applied — remaining remote steps
 
-### 2a. Storage buckets + `storage.objects` read policies — *SQL ready, not run*
+### 2a. Storage buckets + `storage.objects` read policies — *applied (Batch B)*
 
 `supabase/storage/buckets.sql` creates 3 buckets (`public-media` public,
 `parent-media` / `school-documents` private) and 4 `SELECT` policies on
